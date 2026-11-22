@@ -10,6 +10,9 @@ import { test, type TestContext } from 'node:test';
 const root = path.resolve(import.meta.dirname, '../../..');
 const helper = path.join(root, 'scripts/perf-lock.pl');
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Perl that's true while this test process lives, for stand-in failures and
+// leftover children that would otherwise never end if the run is killed.
+const TEST_ALIVE = `kill(0, ${process.pid})`;
 // By the clock, with the suite's patience, not 500 polls (about 20 s): at a
 // load of 100 a perl child took longer than that to start (a fork, 15 Nov).
 async function until(check: () => boolean, message: string) {
@@ -19,6 +22,12 @@ async function until(check: () => boolean, message: string) {
     await pause(40);
   }
   if (!check()) assert.fail(message);
+}
+// A process's exit within the suite's patience, failing rather than hanging.
+async function within<T>(done: Promise<T>, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), PATIENCE_MS); });
+  try { return await Promise.race([done, late]); } finally { clearTimeout(timer); }
 }
 // When a process started, as perf-children.pl records it: lstart on macOS,
 // and on Linux seconds since boot, as lstart there moves with the clock's
@@ -41,7 +50,9 @@ function born(pid: number | string): string {
 }
 function host(t: TestContext) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-perf-lock-'));
-  const env = { ...process.env, HOME: home, THREADBEAR_PERF_LOCK_OWNER: '' };
+  // One give-up limit whatever the shell running the suite exports, well
+  // past PATIENCE_MS so no test that waits on a failing probe meets it.
+  const env = { ...process.env, HOME: home, THREADBEAR_PERF_LOCK_OWNER: '', THREADBEAR_PERF_REAP_LIMIT: '300' };
   const children: (ChildProcess & { done: Promise<number | null> })[] = [];
   t.after(async () => {
     fs.writeFileSync(path.join(home, 'resume-scan'), '');
@@ -70,7 +81,9 @@ function pausedSnapshot(home: string) {
   fs.writeFileSync(path.join(bin, 'ps'), `#!/usr/bin/perl
     use strict; use warnings;
     my $base = $ENV{HOME};
-    if ($ARGV[0] eq '-axo' && $ARGV[1] eq 'pid=,ppid=,pgid=,uid=,stat=,lstart=' && -e "$base/fail-scan") {
+    # Every stand-in failure here ends with the test process, so a killed test run can't leave a cleanup stuck behind it for good:
+    # 33 of them ran for hours on Seth's Mac at a load of 159 (20 Nov).
+    if ($ARGV[0] eq '-axo' && $ARGV[1] eq 'pid=,ppid=,pgid=,uid=,stat=,lstart=' && -e "$base/fail-scan" && ${TEST_ALIVE}) {
       open(my $seen, '>', "$base/scan-failed"); close $seen; exit 1;
     }
     if ($ARGV[0] eq '-axo' && $ARGV[1] eq 'pid=,ppid=,pgid=,uid=,stat=,lstart=' && unlink("$base/pause-scan")) {
@@ -78,7 +91,7 @@ function pausedSnapshot(home: string) {
       my $rows = do { local $/; <$ps> }; close $ps or die 'ps failed';
       open(my $out, '>', "$base/snapshot") or die $!; print {$out} $rows; close $out;
       open(my $ready, '>', "$base/scan-ready") or die $!; close $ready;
-      select(undef, undef, undef, 0.02) until -e "$base/resume-scan";
+      select(undef, undef, undef, 0.02) until -e "$base/resume-scan" || !${TEST_ALIVE};
       open(my $saved, '<', "$base/snapshot") or die $!; print while <$saved>; exit;
     }
     exec '/bin/ps', @ARGV;
@@ -536,14 +549,14 @@ test('an anchor with a different freshly queried group cannot authorize group KI
         $row =~ s/^\\s*\\d+/0/; print $row; exit 0;
       }
       open(my $f, '>', "$ENV{HOME}/query-paused"); close $f;
-      select(undef, undef, undef, .02) until -e "$ENV{HOME}/resume-scan";
+      select(undef, undef, undef, .02) until -e "$ENV{HOME}/resume-scan" || !${TEST_ALIVE};
     }
     exec '/bin/ps', @ARGV;
   `, { mode: 0o755 });
   const pidfile = path.join(h.home, 'child.pid');
   const command = `use POSIX; my $p = fork() // die $!; if (!$p) {
     POSIX::close(197); $SIG{TERM} = $SIG{HUP} = 'IGNORE';
-    open(my $f, '>', $ARGV[0]); print {$f} $$; close $f; sleep 1 while 1;
+    open(my $f, '>', $ARGV[0]); print {$f} $$; close $f; sleep 1 while ${TEST_ALIVE};
   } select(undef, undef, undef, .01) until -s $ARGV[0]; exit 0;`;
   const first = h.run(['perl', '-e', command, pidfile], { PATH: `${bin}:${process.env.PATH}` });
   await until(() => fs.existsSync(path.join(h.home, 'query-paused')), 'group query did not reject and retry');
@@ -570,7 +583,7 @@ test('loss of an anchor cannot unlock a live group whose ownership is now uncert
   fs.writeFileSync(entry, `import fs from 'node:fs'; import { spawn } from 'node:child_process';
     fs.writeFileSync(${JSON.stringify(workerFile)}, String(process.pid));
     fs.writeFileSync(${JSON.stringify(registryFile)}, process.env.THREADBEAR_PERF_CHILDREN);
-    spawn('perl', ['-MPOSIX', '-e', 'POSIX::close(197); $SIG{HUP}=$SIG{TERM}="IGNORE"; open(my $f, ">", $ARGV[0]); print {$f} $$; close $f; sleep 1 while 1;', ${JSON.stringify(childFile)}], { stdio: 'ignore' });
+    spawn('perl', ['-MPOSIX', '-e', 'POSIX::close(197); $SIG{HUP}=$SIG{TERM}="IGNORE"; open(my $f, ">", $ARGV[0]); print {$f} $$; close $f; sleep 1 while ${TEST_ALIVE};', ${JSON.stringify(childFile)}], { stdio: 'ignore' });
     setInterval(() => {}, 1000);`);
   const first = h.run([process.execPath, entry]);
   await until(() => fs.existsSync(childFile) && Number(fs.readFileSync(childFile, 'utf8')) > 1, 'child did not start');
@@ -740,15 +753,46 @@ for (const loss of ['owner', 'transport'] as const) test(`${loss} loss reaps a n
   assert.equal(await next.done, 0, next.output);
 });
 
-for (const failure of ['stderr', 'timeout', 'closed-pipes', 'empty'] as const) test(`descriptor probe ${failure} still stops registered work and keeps both locks`, { skip: process.platform !== 'darwin' }, async (t) => {
-  const h = host(t);
-  const scripts = path.join(h.home, 'helpers');
+// With { stray: true } the failing stand-in leaves one process of its own
+// running, in its own session, which would hold the host locks after
+// cleanup if they leaked into the probes it starts. Its pid goes in
+// $HOME/stray-probe-child.
+const STRAY_PROBE_CHILD = `if (!-e "$ENV{HOME}/stray-probe-child") { my $s = fork(); if (defined($s) && !$s) { POSIX::setsid(); close STDOUT; close STDERR; sleep 1 while ${TEST_ALIVE}; exit 0; } if ($s && open(my $m, '>', "$ENV{HOME}/stray-probe-child")) { print {$m} $s; close $m; } }`;
+// A copy of perf-lock.pl whose cleanup asks this stand-in instead of lsof.
+// While $HOME/blocked-probe exists (and this test process lives) it fails
+// the given way, noting each failure in $HOME/probe-failures; otherwise it
+// runs the real lsof. $HOME/fail-few makes it fail three times in a row, as
+// soon as $HOME/child-gone exists and the lease's anchors are gone, so
+// cleanup knows of nothing still running; after that it answers for lsof
+// itself, listing only cleanup's own descriptor, so a slow lsof on a busy
+// machine can't add failures of its own.
+type ProbeFailure = 'stderr' | 'timeout' | 'closed-pipes' | 'empty';
+function probedLock(home: string, failure: ProbeFailure, { stray = false } = {}) {
+  const scripts = path.join(home, 'helpers');
   fs.mkdirSync(scripts);
   for (const name of ['perf-lock.pl', 'hangup-guard.sh']) fs.copyFileSync(path.join(root, 'scripts', name), path.join(scripts, name));
   const probe = path.join(scripts, 'probe');
   fs.writeFileSync(probe, `#!/usr/bin/perl
-    if (-e "$ENV{HOME}/blocked-probe") {
-      ${failure === 'stderr' ? 'print STDERR "unavailable\\n"; exit 2;' : failure === 'empty' ? 'exit 0;' : `${failure === 'closed-pipes' ? 'close STDOUT; close STDERR;' : ''} sleep 1 while 1;`}
+    use POSIX ();
+    my $few = "$ENV{HOME}/fail-few";
+    # The lease's anchors, live and not zombies waiting to be reaped.
+    my $anchored = sub { grep { my $pid = open(my $r, '<', $_) ? (<$r> // '') : ''; chomp $pid;
+      $pid =~ /^\\d+$/ && \`/bin/ps -o stat= -p $pid\` =~ /^\\s*[^Z\\s]/ }
+      glob("$ENV{HOME}/.cache/threadbear-check/perf-children-*/{anchor,retired}-*") };
+    if (-e $few && -e "$ENV{HOME}/child-gone" && !$anchored->()) {
+      open(my $c, '>>', $few); print {$c} 'x'; close $c;
+      if (-s $few >= 3) { unlink $few; open(my $d, '>', "$ENV{HOME}/failed-few"); close $d; }
+      print STDERR "unavailable\\n"; exit 2;
+    }
+    if (-e "$ENV{HOME}/failed-few") {
+      my ($state) = glob("$ENV{HOME}/.cache/threadbear-check/perf-children-*.reaping/state");
+      my @st = stat($state // '');
+      if (@st) { printf "p%d\\nf197\\nD0x%x\\ni%d\\n", getppid(), $st[0], $st[1]; exit 0; }
+    }
+    if (-e "$ENV{HOME}/blocked-probe" && ${TEST_ALIVE}) {
+      if (open(my $n, '>>', "$ENV{HOME}/probe-failures")) { print {$n} "x\\n"; close $n; }
+      ${stray ? STRAY_PROBE_CHILD : ''}
+      ${failure === 'stderr' ? 'print STDERR "unavailable\\n"; exit 2;' : failure === 'empty' ? 'exit 0;' : `${failure === 'closed-pipes' ? 'close STDOUT; close STDERR;' : ''} sleep 1 while ${TEST_ALIVE};`}
     }
     exec '/usr/sbin/lsof', @ARGV;
   `, { mode: 0o755 });
@@ -756,6 +800,12 @@ for (const failure of ['stderr', 'timeout', 'closed-pipes', 'empty'] as const) t
   const patched = source.replace("'/usr/sbin/lsof'", () => `'${probe}'`);
   assert.notEqual(source, patched);
   fs.writeFileSync(path.join(scripts, 'perf-children.pl'), patched);
+  return path.join(scripts, 'perf-lock.pl');
+}
+
+for (const failure of ['stderr', 'timeout', 'closed-pipes', 'empty'] as const) test(`descriptor probe ${failure} still stops registered work and keeps both locks`, { skip: process.platform !== 'darwin' }, async (t) => {
+  const h = host(t);
+  const program = probedLock(h.home, failure);
   const stopped = path.join(h.home, 'terminated');
   const ready = path.join(h.home, 'ready');
   const command = `my $p = fork() // die $!; if (!$p) {
@@ -763,7 +813,7 @@ for (const failure of ['stderr', 'timeout', 'closed-pipes', 'empty'] as const) t
     open(my $f, '>', $ARGV[0]); close $f; sleep 1 while 1;
   } select(undef, undef, undef, .01) until -e $ARGV[0]; exit 0;`;
   fs.writeFileSync(path.join(h.home, 'blocked-probe'), '');
-  const first = h.run(['perl', '-e', command, ready, stopped], {}, undefined, false, path.join(scripts, 'perf-lock.pl'));
+  const first = h.run(['perl', '-e', command, ready, stopped], {}, undefined, false, program);
   await until(() => fs.existsSync(stopped), 'probe failure prevented registered TERM cleanup');
   const next = h.run(['sh', '-c', 'echo entered-next-lease']);
   await until(() => next.output.includes('Waiting'), 'probe failure released locks');
@@ -772,6 +822,101 @@ for (const failure of ['stderr', 'timeout', 'closed-pipes', 'empty'] as const) t
   fs.unlinkSync(path.join(h.home, 'blocked-probe'));
   assert.equal(await first.done, 0, first.output);
   assert.equal(await next.done, 0, next.output);
+});
+
+// Seth's case (PR #93): a cleanup whose lsof never recovers held the host
+// for hours. Once everything it knows of has stopped, it gives up at its
+// limit, keeps the workload's own failure, and leaves nothing behind.
+for (const workload of [0, 3]) test(`a cleanup whose probe never recovers gives up at its limit once its work is gone (exit ${workload})`, { skip: process.platform !== 'darwin' }, async (t) => {
+  const h = host(t);
+  const program = probedLock(h.home, 'stderr', { stray: true });
+  const strayFile = path.join(h.home, 'stray-probe-child');
+  t.after(() => {
+    const pid = fs.existsSync(strayFile) ? Number(fs.readFileSync(strayFile, 'utf8')) : 0;
+    if (pid > 1) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+  });
+  const stopped = path.join(h.home, 'terminated');
+  const ready = path.join(h.home, 'ready');
+  const command = `my $p = fork() // die $!; if (!$p) {
+    $SIG{TERM} = sub { open(my $f, '>', $ARGV[1]); close $f; exit 0; };
+    open(my $f, '>', $ARGV[0]); close $f; sleep 1 while ${TEST_ALIVE};
+  } select(undef, undef, undef, .01) until -e $ARGV[0]; exit ${workload};`;
+  fs.writeFileSync(path.join(h.home, 'blocked-probe'), '');
+  const first = h.run(['perl', '-e', command, ready, stopped], { THREADBEAR_PERF_REAP_LIMIT: '3' }, undefined, false, program);
+  assert.equal(await within(first.done, 'cleanup never gave up'), workload || 1, first.output);
+  assert.ok(fs.existsSync(stopped), 'gave up before stopping the work it knew of');
+  assert.ok(fs.existsSync(strayFile), 'the probe never left its stray child');
+  const cache = path.join(h.home, '.cache/threadbear-check');
+  assert.match(fs.readFileSync(path.join(cache, 'perf-cleanup.log'), 'utf8'), /gave up after \d+ s of cleanup: the descriptor probe could not confirm/);
+  assert.deepEqual(fs.readdirSync(cache).filter((name) => name.startsWith('perf-children-')), [], 'gave up and left its registry behind');
+  // The probe's stray child is still running: it mustn't hold the locks.
+  const next = h.run(['sh', '-c', 'echo entered-next-lease']);
+  assert.equal(await within(next.done, 'the probe\'s leftover child kept the host locked'), 0, next.output);
+  assert.match(next.output, /entered-next-lease/);
+});
+
+test('a live group whose owner is in doubt keeps the locks past the give-up limit', { skip: process.platform !== 'darwin' }, async (t) => {
+  const h = host(t);
+  const program = probedLock(h.home, 'stderr');
+  const entry = path.join(h.home, 'worker.mjs');
+  const childFile = path.join(h.home, 'child.pid');
+  const workerFile = path.join(h.home, 'worker.pid');
+  const registryFile = path.join(h.home, 'registry');
+  fs.writeFileSync(entry, `import fs from 'node:fs'; import { spawn } from 'node:child_process';
+    fs.writeFileSync(${JSON.stringify(workerFile)}, String(process.pid));
+    fs.writeFileSync(${JSON.stringify(registryFile)}, process.env.THREADBEAR_PERF_CHILDREN);
+    spawn('perl', ['-MPOSIX', '-e', 'POSIX::close(197); $SIG{HUP}=$SIG{TERM}="IGNORE"; open(my $f, ">", $ARGV[0]); print {$f} $$; close $f; sleep 1 while ${TEST_ALIVE};', ${JSON.stringify(childFile)}], { stdio: 'ignore' });
+    setInterval(() => {}, 1000);`);
+  const first = h.run([process.execPath, entry], { THREADBEAR_PERF_REAP_LIMIT: '1' }, undefined, false, program);
+  await until(() => fs.existsSync(childFile) && Number(fs.readFileSync(childFile, 'utf8')) > 1, 'child did not start');
+  const child = Number(fs.readFileSync(childFile, 'utf8'));
+  const firstBorn = born(String(child));
+  const stopChild = () => {
+    if (firstBorn && born(String(child)) === firstBorn) { try { process.kill(child, 'SIGKILL'); } catch {} }
+  };
+  t.after(stopChild);
+  const worker = Number(fs.readFileSync(workerFile, 'utf8'));
+  const registry = fs.readFileSync(registryFile, 'utf8');
+  const [anchor] = fs.readFileSync(path.join(registry, `anchor-${worker}`), 'utf8').split('\n');
+  fs.writeFileSync(path.join(h.home, 'blocked-probe'), '');
+  process.kill(Number(anchor), 'SIGKILL');
+  process.kill(worker, 'SIGKILL');
+  const next = h.run(['sh', '-c', 'echo entered-next-lease']);
+  try {
+    await until(() => fs.existsSync(`${registry}.reaping`), 'cleanup did not retire registry');
+    await until(() => next.output.includes('Waiting'), 'the next lease did not queue');
+    // Three times the limit, and more failed probes than give-up needs: a
+    // cleanup that gave up here would have let it in.
+    await pause(3000);
+    const failures = () => (fs.existsSync(path.join(h.home, 'probe-failures')) ? fs.readFileSync(path.join(h.home, 'probe-failures'), 'utf8').split('\n').length - 1 : 0);
+    await until(() => failures() >= 4, 'cleanup did not keep probing');
+    assert.doesNotMatch(next.output, /entered-next-lease/, 'gave up while a group it could not account for was alive');
+  } finally {
+    fs.rmSync(path.join(h.home, 'blocked-probe'), { force: true });
+    stopChild();
+  }
+  assert.equal(await next.done, 0, next.output);
+  await first.done;
+});
+
+// A few quick probe failures once cleanup is past its limit aren't enough to
+// give up, as the probe has to have been failing for the whole limit: the
+// child takes 3 s to die after TERM, past the 2 s limit, then the probe
+// fails three times in a row and works again.
+test('a brief probe failure past the give-up limit still finishes cleanly', { skip: process.platform !== 'darwin' }, async (t) => {
+  const h = host(t);
+  const program = probedLock(h.home, 'stderr');
+  const ready = path.join(h.home, 'ready');
+  const gone = path.join(h.home, 'child-gone');
+  const command = `my $p = fork() // die $!; if (!$p) {
+    $SIG{TERM} = sub { select(undef, undef, undef, 3); open(my $f, '>', $ARGV[1]); close $f; exit 0; };
+    open(my $f, '>', $ARGV[0]); close $f; sleep 1 while ${TEST_ALIVE};
+  } select(undef, undef, undef, .01) until -e $ARGV[0]; exit 0;`;
+  fs.writeFileSync(path.join(h.home, 'fail-few'), '');
+  const first = h.run(['perl', '-e', command, ready, gone], { THREADBEAR_PERF_REAP_LIMIT: '2' }, undefined, false, program);
+  assert.equal(await within(first.done, 'cleanup never finished'), 0, first.output);
+  assert.ok(fs.existsSync(gone), 'the child never finished');
+  assert.ok(!fs.existsSync(path.join(h.home, 'fail-few')), 'the probe never failed three times');
 });
 
 test('queued remote copies and targets stay marked in use before the host locks are acquired', async (t) => {

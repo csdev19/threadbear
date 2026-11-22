@@ -1,6 +1,8 @@
 #!/usr/bin/perl
 # One build or measurement per host. Both files stay locked until the hangup
-# guard has stopped the command's tree, including Desk Runner's GUI child.
+# guard has stopped the command's tree, including Desk Runner's GUI child
+# (or, when lsof alone can't confirm that for 10 minutes, until cleanup gives
+# up: perf-children.pl).
 # Usage: perl scripts/perf-lock.pl <pidfile|-> <command...>
 #        perl scripts/perf-lock.pl --desk <pidfile> <command...>
 #        perl scripts/perf-lock.pl --try <pidfile|-> <command...>  (75 if busy)

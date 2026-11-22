@@ -640,7 +640,7 @@
   },
   "runner/test/unit/perf-lock.test.ts": {
     "mikecann-lint/no-sleep-in-tests": {
-      "count": 6
+      "count": 7
     }
   },
   "runner/test/unit/proc.test.ts": {

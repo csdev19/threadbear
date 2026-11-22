@@ -61,7 +61,8 @@ exec "$app/Contents/MacOS/Threadbear", @ARGV;
   fs.writeFileSync(entry, `import fs from 'node:fs'; import { SwiftDriver } from ${JSON.stringify(path.join(repo, 'features/support/swift.ts'))}; fs.writeFileSync(process.env.HOME+'/worker.pid', String(process.pid)); const d = new SwiftDriver(); await d.start(); if (process.env.RELAUNCH) await d.relaunch(); if (process.env.POLL) { while(!fs.existsSync(process.env.HOME+'/mock.pid')) await new Promise(r=>setTimeout(r,20)); const count=()=>fs.readdirSync(process.env.THREADBEAR_PERF_CHILDREN).filter(n=>/^\\d+$/.test(n)).length; const before=count(); for(let i=0;i<20;i++) await d.dump(); fs.writeFileSync(process.env.HOME+'/counts',JSON.stringify([before,count()])); } fs.writeFileSync(process.env.HOME+'/ready', ''); if (process.env.NORMAL_STOP) { await d.stop(); } else { setInterval(()=>{}, 1000); }`);
   fs.writeFileSync(path.join(repo, 'bin/ps'), `#!/bin/bash
 if [[ " $* " = *' lstart= '* ]] && [ -e "$HOME/slow-ps" ]; then
-  while [ ! -e "$HOME/allow-reap" ]; do sleep .02; done
+  # Ends with the test process, so a killed run can't leave cleanup stuck here.
+  while [ ! -e "$HOME/allow-reap" ] && kill -0 ${process.pid} 2>/dev/null; do sleep .02; done
 fi
 exec /bin/ps "$@"
 `, { mode: 0o755 });

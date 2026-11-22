@@ -531,8 +531,9 @@ File references are where to look.
   a start-time check every 30 seconds.
   Only a live matching anchor permits the final group kill; separate sessions
   need their descriptor or captured ancestry. The macOS descriptor probe avoids
-  filesystem stats and has a two-second timeout. A failed probe still allows
-  registered work to stop but prevents unlocking. Same-user processes that
+  filesystem stats and has a two-second timeout (ten once cleanup has run
+  for 30 seconds). A failed probe still allows registered work to stop
+  but prevents unlocking, until the limit below. Same-user processes that
   hide their descriptors cannot be attributed after losing their ancestry.
   Every descriptor scan must also find the reaper's own close-on-exec control
   descriptor before it can declare cleanup complete. If an anchor disappears
@@ -540,7 +541,19 @@ File references are where to look.
   who owns that group.
   A cleanup still blocked after 30 seconds
   records its process IDs in `~/.cache/threadbear-check/perf-cleanup.log`
-  and keeps the locks until the work stops. With `remote.sh --perf`, the shared warm
+  and backs off, scanning at 1, 2, 4 and so on up to every 30 seconds instead
+  of every 50 ms (33 stuck cleanups polling flat out took one Mac to a load of
+  159, 20 Nov). It keeps the locks while any process it knows of is still
+  running or any group's ownership is in doubt. When the only thing left is
+  that the descriptor probe can't confirm the work is gone, and it has failed
+  at least three times over 10 minutes (`THREADBEAR_PERF_REAP_LIMIT` seconds,
+  0 for never, counted while the Mac is awake), cleanup checks every process
+  and group it has known by pid rather than trusting one ps listing, then
+  gives up: it logs that, removes its registry, exits with a failure and
+  releases the locks. The one thing it can then miss is a process only the
+  probe could find (its own process group or session, its parent gone) that
+  no probe listed because the probe kept failing. The ps and lsof it starts don't
+  inherit the locks. With `remote.sh --perf`, the shared warm
   target is `~/.cache/threadbear-check/gpui/perf-target`, kept out of ordinary
   cache eviction; other builds keep their own target. Source/target `.in-use`
   markers are renewed while a remote run waits and works. With update build hosts set but none
