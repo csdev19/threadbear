@@ -330,8 +330,45 @@ test("a job thread's final reply reaches the asking thread on its Mac once, fram
   assert.equal(senderPrefix(m.text), 'ab01cd23');
   f.set('idle', '2026-11-26T10:09:00Z', [...f.s.rows, ...turn(2, ['More.'])]);
   for (let i = 0; i < 4; i++) await f.tick(fr);
-  assert.equal(f.there.length, 1, 'once per job thread');
-  assert.deepEqual(fr.watching(), [], 'then forgotten');
+  assert.equal(f.there.length, 1, 'one reply for the first turn, not the next turn');
+  await f.tick(fr, 11 * MIN);
+  assert.deepEqual(fr.watching(), [], 'forgotten once nothing more can come for that turn');
+});
+
+test('a job reply waits for the turn final assistant row, and a row that arrives late is sent too', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  // Ended, but the last reply has not reached the backend: the turn's last row is a tool call.
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, [], { tools: true }));
+  for (let i = 0; i < 3; i++) await f.tick(fr);
+  assert.equal(f.there.length, 0, 'no incomplete reply is sent');
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['The full review.'], { tools: true }));
+  await f.tick(fr);
+  assert.equal(f.there.length, 0, 'seen once: waits for a second look like any far report');
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.match(f.there[0]!.text, /\n\nThe full review\.$/);
+  // The reply grows after it went: the asking thread gets the whole one, marked again.
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['The full review.', 'And one more finding.'], { tools: true }));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 2);
+  assert.match(f.there[1]!.text, /And one more finding\.$/);
+  assert.match(f.there[1]!.text, /again/);
+  await f.tick(fr);
+  assert.equal(f.there.length, 2);
+});
+
+test('a job turn that ends on a tool call is sent after it has stayed the same for a while', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, [], { tools: true }));
+  await f.tick(fr);
+  await f.tick(fr, 3 * MIN);
+  assert.equal(f.there.length, 1);
+  assert.match(f.there[0]!.text, /no reply/);
 });
 
 test('a reply-back that could not be delivered is tried again, and survives a new FarReports on the same file', async () => {
