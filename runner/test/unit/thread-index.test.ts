@@ -675,3 +675,40 @@ test('mayRead: a refusal while the key says it may read is tried again once the 
   assert.equal(subscriptions, 2);
   index.stop();
 });
+
+test('mayRead: a refusal while the key says it may read is tried again at the next start (the heartbeat that still says reads), and said once', async () => {
+  const h = makeHarness();
+  let subscriptions = 0;
+  const lines: string[] = [];
+  const index = new ThreadIndex({
+    post: async () => null,
+    subscribe: (_fn, _args, _u, onError) => {
+      subscriptions++;
+      // Cleared and granted again between two heartbeats: the backend refuses the first two asks.
+      if (subscriptions <= 2) queueMicrotask(() => onError(Object.assign(new Error('Server Error'), { data: { kind: 'forbidden', message: "This runner's key can't call otherRunnersThreads" } })));
+      return () => {};
+    },
+    key: 'tbr_k',
+    runnerId: 'r-laptop',
+    home: h.home,
+    host: h.runner,
+    publish: () => {},
+    clock: h.clock,
+    log: { ...nullLogger, info: (m: string) => void lines.push(m) },
+    mayRead: () => true,
+  });
+  index.start();
+  await tick();
+  assert.equal(subscriptions, 1);
+  // The next heartbeat says reads again: start() runs although the index is up, and asks again.
+  index.start();
+  assert.equal(subscriptions, 2, 'a refusal does not leave the index unable to restart');
+  await tick();
+  assert.equal(lines.filter((l) => l.startsWith('not watching the other runners')).length, 1, 'said once');
+  index.start();
+  assert.equal(subscriptions, 3);
+  await tick();
+  index.start();
+  assert.equal(subscriptions, 3, 'a watch that is up is left alone');
+  index.stop();
+});
