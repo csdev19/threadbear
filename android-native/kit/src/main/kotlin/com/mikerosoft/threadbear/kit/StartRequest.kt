@@ -1,5 +1,6 @@
 package com.mikerosoft.threadbear.kit
 
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -70,4 +71,23 @@ data class StartedThread(val id: String, val runnerId: String?, val runnerName: 
             return StartedThread(t.str("id") ?: return null, t.str("runnerId"), t.str("runnerName"))
         }
     }
+}
+
+/**
+ * What reading a start card's request came to: a request to show, a card that
+ * can't be started from the phone (the backend said null), or a read that
+ * failed, which isn't the same: it can be tried again.
+ */
+sealed interface StartRequestRead {
+    data class Startable(val request: StartRequest) : StartRequestRead
+    data object NotStartable : StartRequestRead
+    data object Unreadable : StartRequestRead
+}
+
+suspend fun PhoneBackend.readStartRequest(threadId: String, approvalId: String): StartRequestRead = try {
+    startRequest(threadId, approvalId)?.let { StartRequestRead.Startable(it) } ?: StartRequestRead.NotStartable
+} catch (e: CancellationException) {
+    throw e
+} catch (_: Exception) {
+    StartRequestRead.Unreadable
 }
