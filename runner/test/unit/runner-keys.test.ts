@@ -688,3 +688,49 @@ test("a Mac whose runner.json is JSON but not an object gets nothing written ove
     assert.match(s.printed.join('\n'), /not an object/);
   }
 });
+
+test('tb runner add --read-others sends reads: true, and a --replace without it sends no reads', async () => {
+  let s = setup();
+  assert.equal(await runnerKeysCommand(s.cfg, ['add', 'mac-mini'], { ssh: 'mac-mini', readOthers: true }, s.deps), 0);
+  assert.deepEqual(s.calls.find((c) => c.fn === 'sync:addRunnerKey')!.args, { key: 'owner-key', runnerId: 'cb921b2447ea', name: 'mac-mini', ownerRunnerId: OWN_ID, replace: false, reads: true });
+  s = setup(undefined, ['cb921b2447ea']);
+  assert.equal(await runnerKeysCommand(s.cfg, ['add', 'mac-mini'], { ssh: 'mac-mini', id: 'cb921b2447ea', replace: true }, s.deps), 0);
+  const args = s.calls.find((c) => c.fn === 'sync:addRunnerKey')!.args;
+  assert.equal(args.replace, true);
+  assert.equal('reads' in args, false);
+});
+
+test('tb runner reads <runnerId> on|off sets or clears the read tier, and says so when no key changed', async () => {
+  const s = setup();
+  let changed = 1;
+  const deps = { ...s.deps, post: async (kind: string, fn: string, args: Record<string, unknown>) => (fn === 'sync:setRunnerReads' ? (s.calls.push({ fn, args }), changed) : s.deps.post(kind, fn, args)) };
+  assert.equal(await runnerKeysCommand(s.cfg, ['reads', 'cb921b2447ea', 'on'], {}, deps), 0);
+  assert.equal(await runnerKeysCommand(s.cfg, ['reads', 'cb921b2447ea', 'off'], {}, deps), 0);
+  assert.deepEqual(s.calls.filter((c) => c.fn === 'sync:setRunnerReads').map((c) => c.args), [{ key: 'owner-key', runnerId: 'cb921b2447ea', reads: true }, { key: 'owner-key', runnerId: 'cb921b2447ea', reads: false }]);
+  assert.match(s.printed.join('\n'), /can read/);
+  changed = 0;
+  s.printed.length = 0;
+  assert.equal(await runnerKeysCommand(s.cfg, ['reads', 'cb921b2447ea', 'on'], {}, deps), 0);
+  assert.match(s.printed.join('\n'), /has no live key/);
+});
+
+test('tb runner reads with a bad argument prints usage, exits non-zero and calls nothing', async () => {
+  const s = setup();
+  for (const a of [['reads'], ['reads', 'cb921b2447ea'], ['reads', 'cb921b2447ea', 'maybe'], ['reads', 'bad id', 'on'], ['reads', 'cb921b2447ea', 'on', 'extra']]) {
+    assert.equal(await runnerKeysCommand(s.cfg, a, {}, s.deps), 1, a.join(' '));
+  }
+  assert.equal(s.calls.filter((c) => c.fn === 'sync:setRunnerReads').length, 0);
+  assert.match(s.printed[0]!, /tb runner reads <runnerId> on\|off/);
+});
+
+test('tb runner list shows whether each key has reads', async () => {
+  const s = setup();
+  const keys = [
+    { runnerId: 'cb921b2447ea', name: 'mac-mini', createdAt: '2026-11-01T00:00:00Z', reads: true },
+    { runnerId: 'buildbox0001', name: 'build', createdAt: '2026-11-02T00:00:00Z' },
+  ];
+  const deps = { ...s.deps, post: async (kind: string, fn: string, args: Record<string, unknown>) => (fn === 'sync:listRunnerKeys' ? { keys, rotating: false } : s.deps.post(kind, fn, args)) };
+  assert.equal(await runnerKeysCommand(s.cfg, ['list'], {}, deps), 0);
+  assert.match(s.printed.find((l) => l.includes('cb921b2447ea'))!, /reads/);
+  assert.doesNotMatch(s.printed.find((l) => l.includes('buildbox0001'))!, /reads/);
+});

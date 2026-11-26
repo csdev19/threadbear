@@ -84,6 +84,7 @@ const OPTIONS = {
   id: { type: 'string' },
   finish: { type: 'boolean' },
   replace: { type: 'boolean' },
+  'read-others': { type: 'boolean' },
   // tb runner audit (--remove is tb models' already)
   drop: { type: 'string', multiple: true },
   snapshot: { type: 'string' },
@@ -172,10 +173,12 @@ const HELP = `tb: talk to the Threadbear runner
                                   "# tb land: hold while red" gone red on main, and tells it
                                   when it fails again or passes (a schedule's check runs it
                                   with --quiet, which prints only when it couldn't)
-  tb runner add <name> (--ssh <host> | --out <file>) [--id <runnerId>]
+  tb runner add <name> (--ssh <host> | --out <file>) [--id <runnerId>] [--replace] [--read-others]
                                   on the main Mac: a backend key for another runner that acts
                                   as that runner alone, written over ssh into its
-                                  secrets/convex-key (or a file); never printed
+                                  secrets/convex-key (or a file); never printed. --read-others lets it
+                                  read the other Macs' threads (never write)
+  tb runner reads <runnerId> on|off  set or clear that read tier on a live key
   tb runner list [--json]         tb runner revoke <runnerId> [--purge]  (--purge: and take out all it wrote)
   tb runner logins [<runnerId> <provider:email>... | none]
                                   on the main Mac: which logins a runner key's Mac gets this Mac's
@@ -239,7 +242,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   rpc: [],
   land: ['dry-run', 'despite-red', 'allow-format', 'full'],
   'red-watch': ['quiet'],
-  runner: ['ssh', 'out', 'id', 'json', 'finish', 'replace', 'drop', 'snapshot', 'keys-checked', 'lock-out', 'purge'],
+  runner: ['ssh', 'out', 'id', 'json', 'finish', 'replace', 'drop', 'snapshot', 'keys-checked', 'lock-out', 'purge', 'read-others'],
 };
 
 // Read but never listed when a command refuses a flag: an agent that sees
@@ -337,7 +340,7 @@ async function main(argv: string[]): Promise<number> {
   }
   // Straight to the backend with this Mac's key, so no runner needed either.
   if (cmd === 'runner') {
-    const flags = { ...(typeof values.ssh === 'string' ? { ssh: values.ssh } : {}), ...(typeof values.out === 'string' ? { out: values.out } : {}), ...(typeof values.id === 'string' ? { id: values.id } : {}), json: Boolean(values.json), finish: Boolean(values.finish), replace: Boolean(values.replace), ...(Array.isArray(values.drop) ? { remove: values.drop as string[] } : {}), ...(typeof values.snapshot === 'string' ? { snapshot: values.snapshot } : {}), keysChecked: Boolean(values['keys-checked']), ...(Array.isArray(values['lock-out']) ? { lockOut: values['lock-out'] as string[] } : {}), purge: Boolean(values.purge) };
+    const flags = { ...(typeof values.ssh === 'string' ? { ssh: values.ssh } : {}), ...(typeof values.out === 'string' ? { out: values.out } : {}), ...(typeof values.id === 'string' ? { id: values.id } : {}), json: Boolean(values.json), finish: Boolean(values.finish), replace: Boolean(values.replace), readOthers: Boolean(values['read-others']), ...(Array.isArray(values.drop) ? { remove: values.drop as string[] } : {}), ...(typeof values.snapshot === 'string' ? { snapshot: values.snapshot } : {}), keysChecked: Boolean(values['keys-checked']), ...(Array.isArray(values['lock-out']) ? { lockOut: values['lock-out'] as string[] } : {}), purge: Boolean(values.purge) };
     // The audit asks this Mac's runner how far each of its threads goes.
     const heads = async () => {
       const client = await connectTb(cfg);
