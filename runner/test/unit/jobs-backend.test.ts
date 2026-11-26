@@ -246,3 +246,34 @@ test('a job with no repo parameter takes no repo, and the repo list is only chec
   assert.equal(await outcome(s.ask('tests', { branch: 'main' })), 'ok');
   assert.equal(await outcome(s.ask('tests', { branch: 'main', repo: 'csdev19/threadbear' })), 'badArgs');
 });
+
+test('setJobs refuses a brief using an inherited name ({constructor}, {toString}) with no such parameter', async () => {
+  const s = await setup();
+  // Only a lower-case word is a placeholder, so {constructor} is the inherited name that reaches the check.
+  assert.equal(await outcome(s.publish(job({ params: {}, brief: 'Run {constructor}' }))), 'badArgs');
+  await s.publish(job({ params: { constructor: 'branch' }, brief: 'Run {constructor}' }));
+});
+
+test('fileRequest refuses params naming an inherited property for a job without that parameter', async () => {
+  const s = await setup();
+  await s.publish(job({ name: 'plain', params: {}, brief: 'run the tests' }));
+  assert.equal(await outcome(s.ask('plain', { constructor: 'x' })), 'badArgs');
+  assert.equal(await outcome(s.ask('plain', { toString: 'x' })), 'badArgs');
+  assert.equal(s.requests().length, 0);
+});
+
+test('a job request cannot be claimed or allowed (the old runner path), but can still be denied', async () => {
+  const s = await setup();
+  await s.publish(job());
+  await s.ask('capture-evidence', good);
+  const [a] = s.requests();
+  // The previous runner's answerNow: claim with the owner key, before it creates a thread.
+  const decide = (row: { requestId: string; _id: unknown }, state: string, extra: Record<string, unknown> = {}) =>
+    call(s.ctx, relay.decideRequest, { key: OWNER, requestId: row.requestId, docId: String(row._id), state, ...extra });
+  assert.equal(await outcome(decide(a!, 'claimed', { claim: 'claim-abcdefgh' })), 'badArgs');
+  assert.equal(await outcome(decide(a!, 'allowed', { result: { runnerId: MINI, runnerName: 'mini', threadId: 'T' } })), 'badArgs');
+  assert.equal(s.requests().find((r) => r.requestId === a!.requestId)!.state, 'pending');
+  // Denying still works.
+  assert.equal(await outcome(decide(a!, 'denied')), 'ok');
+  assert.equal(s.requests().find((r) => r.requestId === a!.requestId)!.state, 'denied');
+});

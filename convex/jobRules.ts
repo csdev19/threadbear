@@ -83,7 +83,7 @@ export function jobProblem(j: JobDef, validTarget: (id: string) => boolean): str
   if (!Number.isInteger(j.perHour) || j.perHour < 1 || j.perHour > JOB_PER_HOUR_MAX) return `${at}: perHour is a whole number from 1 to ${JOB_PER_HOUR_MAX}`;
   if (!j.brief.trim()) return `${at}: a job needs a brief`;
   if (new TextEncoder().encode(j.brief).length > JOB_BRIEF_MAX_BYTES) return `${at}: the brief is over ${JOB_BRIEF_MAX_BYTES} bytes`;
-  for (const p of placeholders(j.brief)) if (!(p in j.params)) return `${at}: the brief uses {${p}}, which isn't a parameter`;
+  for (const p of placeholders(j.brief)) if (!Object.prototype.hasOwnProperty.call(j.params, p)) return `${at}: the brief uses {${p}}, which isn't a parameter`;
   return null;
 }
 

@@ -745,6 +745,12 @@ export const decideRequest = mutation({
     if (claim !== undefined && !CLAIM.test(claim)) throw new ConvexError({ kind: 'badArgs', message: 'claim must be 8 to 64 letters, digits, - or _' });
     const r = await ctx.db.query('runnerRequests').withIndex('by_requestId', (q) => q.eq('requestId', requestId)).first();
     if (!r || String(r._id) !== docId) throw new ConvexError({ kind: 'notFound', message: 'no such request' });
+    // Until the job starter exists, nothing may start a job request: the
+    // previous runner release's card path ignores `job` and would start an
+    // empty thread with no permission mode (Full access). It claims before
+    // it creates anything, so the claim is where this refuses. Handing back
+    // and denying stay open.
+    if (r.job !== undefined && (state === 'claimed' || state === 'allowed')) throw new ConvexError({ kind: 'badArgs', message: 'a job request is started by the job starter, not from a card' });
     if (steppingFor('requestState')) return await decideAsBefore(ctx, r, state, result, claim);
     if (state === 'allowed' && !result && r.state === 'claimed') throw new ConvexError({ kind: 'badArgs', message: 'an allowed request says where it started' });
     const type = EVENTS[state];
