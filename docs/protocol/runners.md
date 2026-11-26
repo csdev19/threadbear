@@ -144,7 +144,9 @@ fails before it reaches the backend with "This Mac's key can read other
 Macs' threads but not start or change anything there. Ask an agent here to
 use create_thread, which asks the main Mac.", and a tool's output
 (`threads.heldBody`) is answered as kept on the main Mac, as for a tool
-whose output is withheld. A key without the tier is unchanged. This is the only way the app opens another runner's thread.
+whose output is withheld. Marking another Mac's thread seen is skipped
+there, with no error: its unread dot stays until it's seen on a Mac that
+may write. A key without the tier is unchanged. This is the only way the app opens another runner's thread.
 
 - **Which threads.** A `THREAD_METHODS` request whose `threadId` isn't this
   runner's (nor a draining runner's) but is in its `remoteThreads` list.

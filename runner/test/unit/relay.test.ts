@@ -1555,6 +1555,21 @@ test('a reads-only runner key reads other Macs\' threads, and every write fails 
   assert.equal(h.uploads.length, 0);
 });
 
+test('a reads-only runner key skips marking another Mac\'s thread seen: no backend call, no error', async () => {
+  const h = harness({ readsOnly: true });
+  const inner = h.relay as unknown as { command: (...a: unknown[]) => Promise<unknown> };
+  const real = inner.command.bind(h.relay);
+  let attempts = 0;
+  inner.command = (...a) => {
+    attempts++;
+    return real(...a);
+  };
+  const out = (await h.relay.call(T, 'threads.markSeen', { threadId: T })) as { thread: { unread?: boolean } };
+  assert.ok(out.thread, 'the summary still comes back');
+  assert.equal(attempts, 0, 'the command is not even tried');
+  assert.deepEqual(writeCalls(h.calls), [], 'nothing reached the backend');
+});
+
 test('a reads-only runner key shows a tool whose output stays on the main Mac as a note, and does not ask for it', async () => {
   const h = harness({ readsOnly: true });
   await h.relay.call(T, 'threads.events', { threadId: T });
