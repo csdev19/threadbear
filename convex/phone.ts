@@ -992,10 +992,13 @@ export const startRequest = query({
     // Nothing to offer unless the main Mac says it takes a start from the
     // phone (its heartbeat's `phoneStarts`, set while multiMacJobs is on
     // there): otherwise Start it could only fail. One that hasn't said (an
-    // older runner, the experiment off) gets the plain card to answer on the Mac.
+    // older runner, the experiment off) gets the plain card to answer on the
+    // Mac. The runner read is the one startRequestNow would queue to (the
+    // online main Mac, as a command needs), so the capability and the
+    // destination are one runner.
     const runners: Doc<'runners'>[] = [];
     for await (const x of ctx.db.query('runners')) runners.push(x);
-    const main = await mainOwnerRunner(ctx, runners, false);
+    const main = await mainOwnerRunner(ctx, runners, true);
     if (!runners.find((x) => x.runnerId === main)?.phoneStarts) return null;
     return {
       docId: String(r._id),
@@ -1035,6 +1038,9 @@ export const startRequestNow = mutation({
     for await (const x of ctx.db.query('runners')) runners.push(x);
     const main = await mainOwnerRunner(ctx, runners, true);
     if (!main) throw new ConvexError({ kind: 'badArgs', message: "The main Mac is offline. Answer it there when it's back." });
+    // The same runner startRequest read the capability from: one that hasn't
+    // said it takes a start from the phone would only fail the command.
+    if (!runners.find((x) => x.runnerId === main)?.phoneStarts) throw new ConvexError({ kind: 'badArgs', message: "The main Mac doesn't take a start from the phone. Answer it on the Mac." });
     return queue(ctx, main, 'startRequest', undefined, { threadId, approvalId, docId });
   },
 });

@@ -106,3 +106,25 @@ test('the phone reads nothing while the main Mac does not report that it starts 
   await call(s.ctx, sync.heartbeat, { key: OWNER, runner: { runnerId: MAIN, name: 'M5', version: 'v', startedAt: 'x', draining: false, threadCount: 5 } });
   assert.equal(await call(s.ctx, phone.startRequest, { token: TOKEN, threadId: 'L', approvalId: 'req-000006' }), null);
 });
+
+// One main Mac for both calls: the one the command would go to (online), so the
+// capability is read from the runner that would get the command.
+test('the phone is offered Start it only for the online main Mac, and Start it refuses a destination that did not say phoneStarts', async () => {
+  const s = await setup();
+  await s.file('req-000007');
+  const base = { token: TOKEN, threadId: 'L', approvalId: 'req-000007' };
+  // A second Mac with the owner key and fewer threads, online, that never said phoneStarts.
+  await s.ctx.db.insert('runners', { runnerId: 'dd00aa11bb22', name: 'mini', version: 'v', startedAt: 'x', draining: false, threadCount: 1, lastSeenAt: Date.now(), byOwner: true });
+  // The one that says it takes the start goes to sleep: the online one is the destination, and it did not say.
+  const main = s.rows('runners').find((r) => r.runnerId === MAIN)!;
+  await s.ctx.db.patch(main._id, { lastSeenAt: Date.now() - 3_600_000 });
+  assert.equal(await call(s.ctx, phone.startRequest, base), null);
+  await assert.rejects(call(s.ctx, phone.startRequestNow, { ...base, docId: s.docId('req-000007') }), /doesn't take a start from the phone/);
+  assert.equal(await outcome(call(s.ctx, phone.startRequestNow, { ...base, docId: s.docId('req-000007') })), 'badArgs');
+  assert.equal(s.rows('commands').length, 0);
+  // The one that does say it comes back: both read it.
+  await s.ctx.db.patch(main._id, { lastSeenAt: Date.now() });
+  assert.equal(((await call(s.ctx, phone.startRequest, base)) as { requestId: string }).requestId, 'req-000007');
+  const id = await call(s.ctx, phone.startRequestNow, { ...base, docId: s.docId('req-000007') });
+  assert.equal(s.rows('commands').find((r) => r._id === id)!.runnerId, MAIN);
+});

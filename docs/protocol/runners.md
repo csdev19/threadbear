@@ -465,8 +465,8 @@ runner that's this one is the usual create.
   no job; else the row's `docId`, `requestId`, `threadId`, `runnerId`,
   `runnerName`, `target`, `text`, and the `title`, `cwd`, `model`, `effort`,
   `permissionMode`, `why` it was filed with, and `createdAt`. It is also
-  `null` while the main Mac's last heartbeat didn't carry `phoneStarts: true`
-  (backend API 106; the runner sends it only while the `multiMacJobs`
+  `null` while the online main Mac's last heartbeat (the runner the command
+  would go to) didn't carry `phoneStarts: true` (backend API 106; the runner sends it only while the `multiMacJobs`
   experiment is on, and only to a backend that takes it), so with the
   experiment off, or on a main Mac too old to know the command, the phone
   shows the plain approval card and no Start it. A heartbeat without it
@@ -476,7 +476,9 @@ runner that's this one is the usual create.
   to the main Mac, with no `threadId` of its own: the asking thread is on
   another runner, and a thread's command is only taken by the runner that
   has the thread. With no main Mac online it fails ("The main Mac is
-  offline. Answer it there when it's back."), and one whose `docId` isn't
+  offline. Answer it there when it's back."), so does one whose last
+  heartbeat didn't carry `phoneStarts` ("The main Mac doesn't take a start
+  from the phone. Answer it on the Mac."), and one whose `docId` isn't
   the row's, or that isn't pending or names a job, is refused with a plain
   reason. The main Mac's runner starts nothing unless the `multiMacJobs`
   experiment is on there ("Starting requests from the phone is off on the
