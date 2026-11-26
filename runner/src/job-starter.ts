@@ -16,6 +16,7 @@ import crypto from 'node:crypto';
 import { ErrorCode, RpcError } from './protocol.ts';
 import { refused, type RunnerRef } from './cross-runner.ts';
 import { wasNotSent } from './relay.ts';
+import { valuesProblem } from './job-values.ts';
 
 // The experiment that turns it on (src/experiments/multiMacJobs.md).
 export const JOB_STARTER_EXPERIMENT = 'multiMacJobs';
@@ -145,6 +146,8 @@ export class JobStarter {
     const names = Object.keys(job.params);
     const given = Object.keys(row.params ?? {});
     if (names.length !== given.length || !names.every((n) => has(row.params, n) && typeof row.params[n] === 'string')) return deny(`The request's parameters don't fit the job "${job.name}" any more, so nothing was started.`);
+    // The values again, against the job as it is now: the owner may have changed it since the request was filed.
+    if (valuesProblem(job, row.params) !== null) return deny(`The request's values don't fit the job "${job.name}" any more, so nothing was started.`);
     // Left pending for a Mac that is only away for now; denied once it has been too long.
     if (!target.self && target.online === false) {
       if (this.deps.now() - row.createdAt < OFFLINE_WAIT_MS) return;
