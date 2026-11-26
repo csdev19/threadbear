@@ -4,12 +4,12 @@
 use gpui_kit::prelude::*;
 use gpui_kit::test::{TestEventExt as _, TestWindowExt as _};
 use gpui_kit::{
-    base, canvas, div, list, point, px, size, AppContext as _, Bounds, Context, FollowMode,
-    InputEvent as _, IntoElement, ListAlignment, ListOffset, ListState, Modifiers, Point, Render,
-    ScrollDelta, ScrollEvent, ScrollSource, TestAppContext, TouchPhase, Window, WindowBounds,
-    WindowOptions,
+    base, canvas, div, list, point, px, size, AnyView, AppContext as _, Bounds, Context, Entity,
+    FollowMode, InputEvent as _, IntoElement, ListAlignment, ListOffset, ListState, Modifiers,
+    Point, Render, ScrollDelta, ScrollEvent, ScrollSource, StyleRefinement, TestAppContext,
+    TouchPhase, Window, WindowBounds, WindowOptions,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::Duration;
@@ -136,6 +136,7 @@ fn packets(
 ) -> Vec<f32> {
     cx.update(gpui_kit::init);
     let seen = Rc::new(RefCell::new(BTreeMap::new()));
+    let peek = Rc::new(Cell::new(true));
     let list = ListState::new(ROWS, ListAlignment::Top, px(600.));
     list.set_follow_mode(FollowMode::Tail);
     let window = cx.update(|cx| {
@@ -245,4 +246,121 @@ fn a_slow_wheel_leaves_the_bottom_a_pixel_at_a_time(cx: &mut TestAppContext) {
     let painted = packets(cx, None, 0.1, |_| 1);
     assert_eq!(painted.first(), Some(&(END + 1.)), "{painted:?}");
     assert_eq!(painted.last(), Some(&(END + 12.)), "{painted:?}");
+}
+
+/// The window's root as the app nests the transcript: a cached main panel
+/// holding the thread's pane (`View`), which holds the bounce and the list.
+/// While `peek` is on, the root reads the pane before the panel renders, as
+/// something early in one of the app's frames did.
+struct Root {
+    pane: Entity<View>,
+    panel: Entity<Panel>,
+    peek: Rc<Cell<bool>>,
+}
+
+impl Render for Root {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.peek.get() {
+            let _ = self.pane.read(cx);
+        }
+        div()
+            .size_full()
+            .child(AnyView::from(self.panel.clone()).cached(StyleRefinement::default().size_full()))
+    }
+}
+
+struct Panel {
+    pane: Entity<View>,
+}
+
+impl Render for Panel {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(self.pane.clone())
+    }
+}
+
+#[gpui_kit::test]
+fn after_an_idle_pause_the_first_trackpad_packet_moves_a_cached_transcript(
+    cx: &mut TestAppContext,
+) {
+    // The panel last rendered after the pane had already been read that
+    // frame. It still shows the pane, so the pane's notify has to redraw it.
+    // It used to reach no window: the panel replayed from its cache, the rows
+    // stood still while the list moved, then jumped when something else
+    // repainted the panel.
+    cx.update(gpui_kit::init);
+    let seen = Rc::new(RefCell::new(BTreeMap::new()));
+    let peek = Rc::new(Cell::new(true));
+    let list = ListState::new(ROWS, ListAlignment::Top, px(600.));
+    list.set_follow_mode(FollowMode::Tail);
+    let window = cx.update(|cx| {
+        let bounds = Bounds {
+            origin: Point::default(),
+            size: size(px(400.), px(600.)),
+        };
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        };
+        let (list, seen, peek) = (list.clone(), seen.clone(), peek.clone());
+        gpui_kit::open_window(options, cx, move |_, cx| {
+            let pane = cx.new(|_| View { list, seen });
+            let panel = cx.new(|_| Panel { pane: pane.clone() });
+            cx.new(|_| Root { pane, panel, peek })
+        })
+        .expect("a test window")
+        .0
+    });
+    let top = || {
+        seen.borrow()
+            .iter()
+            .next()
+            .map(|(&ix, &y)| y - ix as f32 * ROW)
+    };
+    // A frame as the app draws one: no refresh, so cached views may replay.
+    let draw = |cx: &mut TestAppContext| {
+        seen.borrow_mut().clear();
+        cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
+            .expect("the window");
+    };
+    // The list measures its rows over its first frames; refresh so every view
+    // renders fresh.
+    for _ in 0..2 {
+        seen.borrow_mut().clear();
+        cx.update_window(window, |_, window, cx| window.render_frame(cx))
+            .expect("the window");
+    }
+    assert_eq!(top(), Some(END), "the panel shows the end");
+    peek.set(false);
+    // Idle: the window keeps drawing (a caret, a spinner), the panel replays.
+    for _ in 0..3 {
+        cx.executor().advance_clock(Duration::from_secs(1));
+        draw(cx);
+    }
+    assert_eq!(top(), None, "idle frames replay the panel");
+
+    // A trackpad gesture's first packets, then the next frame: the window
+    // draws one when the pane's notify reaches it, and one more here stands
+    // for anything else that would draw.
+    seen.borrow_mut().clear();
+    cx.update_window(window, |_, window, cx| {
+        for (phase, dy) in [(TouchPhase::Started, 0.), (TouchPhase::Moved, 12.)] {
+            let event = ScrollEvent {
+                position: point(px(200.), px(300.)),
+                delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+                modifiers: Modifiers::default(),
+                touch_phase: phase,
+                source: ScrollSource::Pointer,
+            };
+            window.dispatch_event(event.to_platform_input(), cx);
+        }
+    })
+    .expect("the window");
+    cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
+        .expect("the window");
+    assert_eq!(
+        top(),
+        Some(END + 12.),
+        "the rows move by the packet within one frame"
+    );
 }

@@ -84,6 +84,11 @@ gpui-base = { path = "vendor/gpui-base" }
 # a click that opened a row moved its heading as the transcript followed its
 # tail, and the heading's tip came up over the findings under the pointer and
 # stayed (23 Nov). Its delayed show checks that too before it shows.
+# And a cached view records every entity it reads, even one read earlier in
+# the same frame (app.rs, `detect_accessed_entities`). Upstream left those
+# out, so the main panel forgot the thread pane it shows: after a pause the
+# pane's notify reached no window, the transcript stood still under a
+# trackpad, then jumped (rows/list_wheel_tests.rs).
 gpui-pre = { path = "vendor/gpui-pre" }
 # gpui-pre-macos 0.3.11 as published, except that with a native view inside
 # the window holding the keyboard (a web panel's page), a key without ⌘ or
