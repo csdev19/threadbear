@@ -1611,6 +1611,17 @@ export class Relay {
   }
 
   /** A thread method about another runner's thread (rpc.ts THREAD_METHODS). */
+  /**
+   * A send to a thread on a runner the caller already knows by id, without the
+   * sidebar index (which after a restart has nothing until an app connects).
+   * The same command threads.send queues; the backend refuses a runner that no
+   * longer has the thread. Throws if it wasn't taken (an offline runner, the
+   * backend away); a command still waiting in the backend counts as sent.
+   */
+  async sendTo(runnerId: string, threadId: string, text: string): Promise<void> {
+    await this.command(runnerId, threadId, 'send', { text });
+  }
+
   async call(threadId: string, method: string, p: Record<string, unknown>): Promise<unknown> {
     const w = this.watch(threadId);
     switch (method) {
