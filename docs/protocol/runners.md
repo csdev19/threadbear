@@ -690,7 +690,12 @@ other runner of a handover passed it on while this one was reading.
   and nothing would send its reply. A watch kept for a request that is denied
   later is harmless; the reply still comes. A send that failed (the asking Mac's thread
   gone, the relay down) is tried again less and less often, up to every
-  fifteen minutes, and given up on after a day, with one log line. A crash
+  fifteen minutes, and given up on after a day, with one log line. A
+  failure before the command was queued (`wasNotSent`: the Mac offline, no
+  backend) is retried as it was. Any other failure may have come after the
+  command was queued and taken, so the reply may already be there: the
+  retry then says in its first line that it may repeat a report already
+  sent. The mark stays on the watch (`maybeSent`) until the reply goes. A crash
   between a send and the save of it can send the reply a second time, which
   is accepted over losing it. A job thread on the main Mac itself is covered
   the same way.
