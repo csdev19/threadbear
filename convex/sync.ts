@@ -3497,11 +3497,12 @@ export const finishCommand = mutation({
     // already done or failed (finished before, cancelled, expired) stays as
     // it ended, and null is all a runner ever got back.
     if (c.commandState.kind !== 'taken' && c.commandState.kind !== 'lapsed') return null;
-    // A call's answer, a slashCommands list (API 62) or a design review (API 86).
+    // A call's answer, a slashCommands list (API 62), a design review (API 86)
+    // or the thread a phone's Start it made (API 106).
     // And (API 77) a login or model change's: the login and model that
     // runner applied, which may not be the model asked for.
     const settings = c.kind === 'update' && (c.args?.accountId !== undefined || c.args?.model !== undefined);
-    let kept = ok && (c.kind === 'call' || c.kind === 'slashCommands' || c.kind === 'designReviews' || settings) && result !== undefined && utf8Bytes(result) <= RESULT_MAX_BYTES ? cleanResult(result) : undefined;
+    let kept = ok && (c.kind === 'call' || c.kind === 'slashCommands' || c.kind === 'designReviews' || c.kind === 'startRequest' || settings) && result !== undefined && utf8Bytes(result) <= RESULT_MAX_BYTES ? cleanResult(result) : undefined;
     // A thread's description for the Move sheet carries its repo's address:
     // stored without whatever an older runner's scrubber left in its
     // userinfo (an ssh user that's a token), as moves:moveInfo stores it

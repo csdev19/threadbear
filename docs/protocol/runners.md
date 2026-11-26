@@ -406,7 +406,8 @@ runner that's this one is the usual create.
   asking thread named `threadbear.start_thread`, with the request as its
   `input`, and waits up to an hour, like `ask_secret`. A message from Mike
   in that thread declines it. Its thread row's card has no `options` and
-  says to answer it on the Mac: the phone can't start it.
+  says to answer it on the Mac (an app that can't start it from the phone
+  says so; see "From the phone" below).
 - **The main Mac's app** draws that card from the request as filed
   (`requests.get` on its own runner), never from the card's words: who's
   asking, the machine and folder it would start in, its permissions and
@@ -458,6 +459,32 @@ runner that's this one is the usual create.
   been made (another runner answering late, a handover passing it on), and
   the card says so. A machine the runner list says is offline is said
   before anything is claimed.
+- **From the phone** (backend API 106). The phone reads the request as
+  filed with `phone:startRequest({ token, threadId, approvalId })`: `null`
+  unless the request is still `pending`, is the asking thread's, and names
+  no job; else the row's `docId`, `requestId`, `threadId`, `runnerId`,
+  `runnerName`, `target`, `text`, and the `title`, `cwd`, `model`, `effort`,
+  `permissionMode`, `why` it was filed with, and `createdAt`. Start it is
+  `phone:startRequestNow({ token, threadId, approvalId, docId })`, which
+  queues a `startRequest` command (args `threadId`, `approvalId`, `docId`)
+  to the main Mac, with no `threadId` of its own: the asking thread is on
+  another runner, and a thread's command is only taken by the runner that
+  has the thread. With no main Mac online it fails ("The main Mac is
+  offline. Answer it there when it's back."), and one whose `docId` isn't
+  the row's, or that isn't pending or names a job, is refused with a plain
+  reason. The main Mac's runner starts nothing unless the `multiMacJobs`
+  experiment is on there ("Starting requests from the phone is off on the
+  main Mac."), never on a runner key, and it reads the row again: a `docId`
+  that isn't the one the phone showed is refused ("That request has changed
+  since the phone showed it."), as is one naming a Mac it doesn't know
+  (it is never started on the main Mac instead; one naming the main Mac
+  itself is fine). Then it starts it as Start it on the Mac does
+  (`requests.answer` with the machine the request names and the fingerprint
+  computed there, the claim, the header, the folder rules and a
+  `missingFolder` declined as above), and the command's `result` is the
+  thread it started. The phone never sees the fingerprint, so what holds a
+  start to what it showed is the `docId`: a request filed again under the
+  same id is another row. Don't stays `phone:respond` with `deny`.
 - **The asking runner believes only the backend.** An `allow` for this
   card reads `relay:runnerRequest`: allowed with a result, the tool says
   where the thread started; denied, the user said no; still pending (an
