@@ -706,6 +706,9 @@ export type CommandHost = {
   quickAsk(p: { question: string; answer: string; sources?: { title: string; url: string }[]; askedAt?: number }): { thread: ThreadSummary };
   // The website's Pause, Resume and Run now (API 45). Absent in small tests.
   schedule?: (p: { scheduleId: string; action: 'pause' | 'resume' | 'run' }) => unknown;
+  // The phone's Start it on a runner key's free-text request (API 106): the
+  // main Mac's CrossRunner.startFromPhone. Absent on a runner that isn't it.
+  startRequest?: (p: { threadId: string; approvalId: string; docId: string }) => Promise<{ thread?: unknown }>;
   // A reply button's press from the phone or website (API 59), buttons.press.
   pressButton?: (threadId: string, buttonId: string) => unknown;
   // The phone's slash command palette (API 62): threads.commands.
@@ -5281,6 +5284,14 @@ export class ConvexSync {
           this.scheduleFlush();
         }
         return { result };
+      }
+      case 'startRequest': {
+        // For no thread of its own: the asking thread is on another runner
+        // (convex/phone.ts startRequestNow), so its id is an argument here.
+        if (!host.startRequest) throw new Error("This runner can't start another runner's request.");
+        if (typeof a.threadId !== 'string' || typeof a.approvalId !== 'string' || typeof a.docId !== 'string') throw new Error('bad request');
+        const { thread } = await host.startRequest({ threadId: a.threadId, approvalId: a.approvalId, docId: a.docId });
+        return { result: { thread } };
       }
       case 'respondReview': {
         if (!host.respondReview) throw new Error("Update the thread's runner to answer reviews on the phone.");

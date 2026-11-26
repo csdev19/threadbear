@@ -40,7 +40,7 @@ function realDirIn(dirs: Set<string>) {
 }
 const realDir = realDirIn(DIRS);
 
-function fake(opts: { owner: boolean; loseClaimAnswer?: number; self?: { id: string; name: string }; failCreate?: Error; failThere?: unknown; failRespond?: Error; runners?: RunnerRef[]; beforeOpen?: () => void }) {
+function fake(opts: { owner: boolean; loseClaimAnswer?: number; self?: { id: string; name: string }; failCreate?: Error; failThere?: unknown; failRespond?: Error; runners?: RunnerRef[]; beforeOpen?: () => void; phoneStarts?: boolean }) {
   const log: string[] = [];
   // This fake's own disk, so a test can make a folder appear.
   const dirs = new Set(DIRS);
@@ -106,6 +106,7 @@ function fake(opts: { owner: boolean; loseClaimAnswer?: number; self?: { id: str
     },
     home: () => HOME,
     realDir: realDirIn(dirs),
+    phoneStarts: () => opts.phoneStarts ?? false,
   };
   return { cross: new CrossRunner(deps), log, rows, dirs, setOpen: (id: string | undefined) => (open = id), check: () => cardCheck!(), settle: (a: RequestAnswer) => settle!(a), input: () => cardInput };
 }
@@ -507,4 +508,66 @@ test('answering on the main Mac: one answer to a request at a time, Start it or 
   assert.equal(f.rows.get('req-two')!.state, 'allowed');
   // Answered, it's free again: a later click is told it's allowed, not busy.
   await assert.rejects(f.cross.answer('c', 'req-two', false), /already allowed/);
+});
+
+// Start it on the phone (docs/protocol/runners.md, "From the phone"): the main
+// Mac's runner takes the phone's command and starts what the row says, as Start
+// it on the Mac does, but only with the experiment on and the row as shown.
+function phoneRow(over: Partial<RunnerRequestRow> = {}): RunnerRequestRow {
+  return { docId: 'doc1', requestId: 'req-p1', runnerId: 'cloud1', runnerName: 'Cloud box', threadId: 'c', target: 'mac-mini', text: 'x', createdAt: 1, state: 'pending', ...over };
+}
+
+test('from the phone: starts the request on the machine it names, as Start it on the Mac does', async () => {
+  const f = fake({ owner: true, phoneStarts: true });
+  f.rows.set('req-p1', phoneRow());
+  f.setOpen('req-p1');
+  const r = await f.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.deepEqual(r.thread, { id: 'new-there', runnerId: 'mini1', runnerName: 'mac-mini' });
+  assert.equal(f.log[0], 'decide req-p1 claimed');
+  assert.match(f.log[1]!, /^there mini1 /);
+  assert.equal(f.log[2], 'decide req-p1 allowed mini1/new-there');
+  assert.equal(JSON.parse(f.log[1]!.slice('there mini1 '.length)).text, askedHeader({ threadId: 'c', runnerName: 'Cloud box' }) + 'x');
+  assert.equal(f.rows.get('req-p1')!.state, 'allowed');
+  assert.match(f.log.at(-1)!, /respond c req-p1 allow/);
+});
+
+test('from the phone: a request naming this Mac starts here', async () => {
+  const f = fake({ owner: true, phoneStarts: true });
+  f.rows.set('req-p1', phoneRow({ target: 'main' }));
+  f.setOpen('req-p1');
+  const r = await f.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.deepEqual(r.thread, { id: 'new-here', runnerId: 'laptop', runnerName: 'Laptop' });
+  assert.ok(f.log.some((l) => l.startsWith('here ')));
+});
+
+test('from the phone: nothing starts with the experiment off, on a runner key, or for another row than the phone showed', async () => {
+  const off = fake({ owner: true });
+  off.rows.set('req-p1', phoneRow());
+  off.setOpen('req-p1');
+  await assert.rejects(off.cross.startFromPhone('c', 'req-p1', 'doc1'), /Starting requests from the phone is off on the main Mac/);
+  const key = fake({ owner: false, phoneStarts: true });
+  await assert.rejects(key.cross.startFromPhone('c', 'req-p1', 'doc1'), /Only the main Mac/);
+  const f = fake({ owner: true, phoneStarts: true });
+  f.rows.set('req-p1', phoneRow({ docId: 'doc2' }));
+  f.setOpen('req-p1');
+  await assert.rejects(f.cross.startFromPhone('c', 'req-p1', 'doc1'), /changed since the phone showed it/);
+  assert.deepEqual([...off.log, ...f.log], []);
+});
+
+test('from the phone: a machine this Mac does not know is refused, never started here instead', async () => {
+  const f = fake({ owner: true, phoneStarts: true });
+  f.rows.set('req-p1', phoneRow({ target: 'no-such-mac' }));
+  f.setOpen('req-p1');
+  await assert.rejects(f.cross.startFromPhone('c', 'req-p1', 'doc1'), /No runner called no-such-mac/);
+  assert.deepEqual(f.log, []);
+  assert.equal(f.rows.get('req-p1')!.state, 'pending');
+});
+
+test("from the phone: a folder that isn't here declines the card with why, as Start it does", MAC_FOLDERS, async () => {
+  const f = fake({ owner: true, phoneStarts: true });
+  f.rows.set('req-p1', phoneRow({ target: 'main', cwd: '/nowhere/project' }));
+  f.setOpen('req-p1');
+  await assert.rejects(f.cross.startFromPhone('c', 'req-p1', 'doc1'), /isn't a folder on this Mac/);
+  assert.ok(f.log.some((l) => l.startsWith('respond c req-p1 deny')));
+  assert.equal(f.rows.get('req-p1')!.state, 'denied');
 });

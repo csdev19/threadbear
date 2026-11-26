@@ -927,6 +927,10 @@ async function main(): Promise<void> {
       // Mike's, from his phone: resuming lifts a schedule's ceiling, as from the
       // app (schedules.ts, "Ceilings").
       schedule: ({ scheduleId, action }) => (action === 'run' ? scheduler.runNow(scheduleId, 'full') : scheduler.update({ scheduleId, paused: action === 'pause', ceiling: 'full' })),
+      // The phone's Start it on a request a runner key filed (API 106). Only the
+      // main Mac's runner takes the command (the backend queues it for it), and
+      // CrossRunner checks the experiment, the owner key and the row itself.
+      startRequest: (p) => cross.startFromPhone(p.threadId, p.approvalId, p.docId),
       // The Mac's Move sheet asking, through the relay (threads.movePreview).
       moveDescribe: async (id) => {
         const info = await describeMovePreview(id);
@@ -1543,6 +1547,8 @@ async function main(): Promise<void> {
         return undefined;
       }
     },
+    // The same experiment as the job starter's: a start from the phone is part of it.
+    phoneStarts: () => experimentOn(cfg.home, JOB_STARTER_EXPERIMENT),
   });
   crossHooks = {
     start: (threadId, req) => cross.start(threadId, req),
