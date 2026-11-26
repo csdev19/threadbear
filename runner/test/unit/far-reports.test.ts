@@ -4,6 +4,7 @@
 // thread that started it, and it never arrived.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { FarReports, farReportText, jobReportText, replyOf, turnsOf, type FarRow } from '../../src/far-reports.ts';
 import { AGENT_MESSAGE_PREFIX, sentByAgent } from '../../src/protocol.ts';
@@ -440,4 +441,17 @@ test("a job report's header can't be broken out of by the job's, the Mac's or th
   assert.ok(first.endsWith(']'));
   assert.equal(senderPrefix(t), 'ab01cd23');
   assert.equal(t.split('\n\n')[0], first);
+});
+
+test('adding a job watch says whether it was saved', async () => {
+  const dir = tmpDir('far-reports-add');
+  const f = fake(dir);
+  const fr = f.make();
+  assert.equal(fr.add(JOB), true);
+  assert.equal(fr.add(JOB), true, 'already watched counts as saved');
+  const blocked = tmpDir('far-reports-blocked');
+  const bad = fake(blocked);
+  // A directory where the file should be: the write fails.
+  fs.mkdirSync(path.join(blocked, 'far-reports.json'));
+  assert.equal(bad.make().add({ ...JOB, threadId: 'x1' }), false);
 });
