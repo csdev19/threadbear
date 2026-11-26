@@ -597,8 +597,12 @@ It is how a job request starts without a card (`runner/src/job-starter.ts`).
 - `relay:pendingJobRequests` (owner only) lists the requests that are
   `pending` and have a `job`, oldest first, at most 20: for each its
   `docId`, `requestId`, `runnerId`, `runnerName` (the asking Mac's), `threadId`,
-  `job`, `params`, `target` and `createdAt`. A request with no `job` is
-  never in it.
+  `job`, `params`, `target`, `createdAt` and `state` (`pending`, or
+  `claimed`). A request with no `job` is never in it. A `claimed` one is in
+  it only once its claim is more than 10 minutes old: a starter that
+  stopped between its claim and its answer. The starter never starts that
+  one again, since a thread may already exist: it hands it back and denies
+  it with a "may have started" reason, and tells the asking thread.
 - `relay:decideRequest` takes `jobStart` (boolean). With `claimed` or
   `allowed` on a row with `job`, the owner key may pass `jobStart: true`;
   without it that is refused as above, so a runner that never sends it

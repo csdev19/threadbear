@@ -52,7 +52,7 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
     backend: () =>
       (opts.owner ?? true) && (opts.ready ?? true)
         ? {
-            pendingJobRequests: async () => [...state.values()].filter((s) => s.state === 'pending').map((s) => s.row),
+            pendingJobRequests: async () => [...state.values()].filter((s) => s.state === 'pending' || s.state === 'claimed').map((s) => ({ ...s.row, state: s.state as 'pending' | 'claimed' })),
             jobsList: async () => opts.jobs ?? [JOB],
             decideRequest: async (p) => {
               log.push(`decide ${p.requestId} ${p.state}${p.jobStart ? ' jobStart' : ''}${p.result ? ` ${p.result.runnerId}/${p.result.threadId}` : ''}`);
@@ -373,4 +373,28 @@ test('one request failing does not stop the next', async () => {
   await f.starter.tick();
   assert.equal(f.state.get(bad.requestId)!.state, 'denied');
   assert.equal(f.state.get(good.requestId)!.state, 'allowed');
+});
+
+test('a claimed request this runner lost is handed back, then denied with a may-have-started reason, and never started', async () => {
+  const req = jobRequest();
+  const f = fake([req]);
+  // A claim left by a runner that stopped: nothing of it is in this one's memory.
+  f.state.get(req.requestId)!.state = 'claimed';
+  await f.starter.tick();
+  assert.equal(f.created.length, 0);
+  assert.deepEqual(f.log.filter((l) => l.startsWith('decide')), [`decide ${req.requestId} pending`, `decide ${req.requestId} denied`]);
+  assert.equal(f.state.get(req.requestId)!.state, 'denied');
+  assert.ok(f.log.some((l) => l.startsWith(`respond L-thread ${req.requestId} deny The main Mac stopped while starting the job "capture-evidence". It may have started on its target: look there before asking again.`)), f.log.join('\n'));
+});
+
+test('a claimed request still in this runner\'s own work is not touched', async () => {
+  const req = jobRequest();
+  const f = fake([req], { failAllow: 1 });
+  await f.starter.tick();
+  assert.equal(f.state.get(req.requestId)!.state, 'claimed');
+  // The next tick resumes its own work (the allow), and does not hand it back.
+  await f.starter.tick();
+  assert.equal(f.created.length, 1);
+  assert.equal(f.state.get(req.requestId)!.state, 'allowed');
+  assert.ok(!f.log.some((l) => l.includes(' pending')), f.log.join('\n'));
 });

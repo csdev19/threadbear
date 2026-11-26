@@ -783,21 +783,32 @@ const jobRequestOut = v.object({
   params: v.record(v.string(), v.string()),
   target: v.string(),
   createdAt: v.number(),
+  state: v.union(v.literal('pending'), v.literal('claimed')),
 });
 const JOB_REQUESTS_MAX = 20;
+// A claim older than this is one its starter stopped holding: it claimed, then
+// stopped before it answered, and nothing else will ever finish it.
+const JOB_CLAIM_STALE_MS = 10 * 60_000;
 // The pending rows read to find them: a pending free-text request is at most 5 a runner.
 const JOB_REQUESTS_READ = 100;
 
-/** The pending requests that name a job, oldest first, for the main Mac's job starter (owner only). */
+/**
+ * The pending requests that name a job, oldest first, for the main Mac's job starter (owner only).
+ * With them, a claimed one left more than 10 minutes: a starter that stopped
+ * between its claim and its answer, which the next one hands back and denies.
+ */
 export const pendingJobRequests = query({
   args: { key: v.string() },
   returns: v.array(jobRequestOut),
   handler: async (ctx, { key }) => {
     await runnerAuth(ctx, key, 'pendingJobRequests');
     const pending = await ctx.db.query('runnerRequests').withIndex('by_request_state', (q) => q.eq('requestState.kind', 'pending')).take(JOB_REQUESTS_READ);
+    const claimed = await ctx.db.query('runnerRequests').withIndex('by_request_state', (q) => q.eq('requestState.kind', 'claimed')).take(JOB_REQUESTS_READ);
+    const stale = claimed.filter((x) => Date.now() - (x.decidedAt ?? x.createdAt) > JOB_CLAIM_STALE_MS);
     const out: Infer<typeof jobRequestOut>[] = [];
-    for (const r of pending.filter((x) => x.job !== undefined).sort((a, b) => a.createdAt - b.createdAt).slice(0, JOB_REQUESTS_MAX)) {
-      out.push({ docId: String(r._id), requestId: r.requestId, runnerId: r.runnerId, runnerName: await runnerNameOf(ctx, r.runnerId), threadId: r.threadId, job: r.job!, params: r.params ?? {}, target: r.target, createdAt: r.createdAt });
+    const rows = [...pending.map((r) => ({ r, state: 'pending' as const })), ...stale.map((r) => ({ r, state: 'claimed' as const }))];
+    for (const { r, state } of rows.filter((x) => x.r.job !== undefined).sort((a, b) => a.r.createdAt - b.r.createdAt || a.r._creationTime - b.r._creationTime).slice(0, JOB_REQUESTS_MAX)) {
+      out.push({ docId: String(r._id), requestId: r.requestId, runnerId: r.runnerId, runnerName: await runnerNameOf(ctx, r.runnerId), threadId: r.threadId, job: r.job!, params: r.params ?? {}, target: r.target, createdAt: r.createdAt, state });
     }
     return out;
   },

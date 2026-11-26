@@ -29,7 +29,7 @@ export const JOB_MODES = ['ask', 'auto', 'plan', 'full'] as const;
 type JobMode = (typeof JOB_MODES)[number];
 
 // What relay:pendingJobRequests and relay:jobsList answer.
-export type JobRequestRow = { docId: string; requestId: string; runnerId: string; runnerName: string; threadId: string; job: string; params: Record<string, string>; target: string; createdAt: number };
+export type JobRequestRow = { docId: string; requestId: string; runnerId: string; runnerName: string; threadId: string; job: string; params: Record<string, string>; target: string; createdAt: number; state?: 'pending' | 'claimed' };
 export type JobRow = { name: string; target: string; repos: string[]; params: Record<string, string>; mode: string; perHour: number; brief: string; updatedAt?: number };
 
 export type JobStarterDeps = {
@@ -105,6 +105,13 @@ export class JobStarter {
       for (const row of rows) {
         // Only a request that names a job: a free-text one keeps its card.
         if (typeof row.job !== 'string' || row.job === '' || this.work.has(row.requestId) || this.finished.has(row.requestId)) continue;
+        // A claim this runner doesn't hold is one it lost by stopping. A thread may
+        // already exist on the target, so it is never started again: handed back, then denied.
+        if (row.state === 'claimed') {
+          const reason = `The main Mac stopped while starting the job "${row.job}". It may have started on its target: look there before asking again.`;
+          await this.guard(row, () => this.run(this.remember({ row, stage: 'release', claim: '', reason })));
+          continue;
+        }
         await this.guard(row, () => this.begin(row));
       }
     } catch (e) {

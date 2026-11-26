@@ -308,7 +308,7 @@ test('pendingJobRequests lists the pending requests that name a job, oldest firs
   const list = await call(s.ctx, relay.pendingJobRequests, { key: OWNER });
   assert.deepEqual(list.map((r: { requestId: string }) => r.requestId), ['req-job-0001', 'req-job-0002']);
   const [first] = list;
-  assert.deepEqual(Object.keys(first).sort(), ['createdAt', 'docId', 'job', 'params', 'requestId', 'runnerId', 'runnerName', 'target', 'threadId']);
+  assert.deepEqual(Object.keys(first).sort(), ['createdAt', 'docId', 'job', 'params', 'requestId', 'runnerId', 'runnerName', 'state', 'target', 'threadId']);
   assert.equal(first.job, 'capture-evidence');
   assert.deepEqual(first.params, good);
   assert.equal(first.runnerId, LAPTOP);
@@ -405,4 +405,16 @@ test('a started job request can be handed back and denied, as any other claim', 
   assert.equal(await outcome(decide(s, a, 'pending')), 'ok');
   assert.equal(await outcome(decide(s, a, 'denied')), 'ok');
   assert.equal(rowOf(s, a.requestId).state, 'denied');
+});
+
+test('pendingJobRequests also returns a claimed job request left more than 10 minutes, with state claimed', async () => {
+  const s = await setup();
+  await s.publish(job({ perHour: 60 }));
+  await s.ask('capture-evidence', good);
+  await s.ask('capture-evidence', { ...good, pr: '43' });
+  await s.ask('capture-evidence', { ...good, pr: '44' });
+  await later(-11 * 60_000, () => decide(s, rowOf(s, 'req-job-0001'), 'claimed', { ...claimArgs, jobStart: true }));
+  await decide(s, rowOf(s, 'req-job-0002'), 'claimed', { ...claimArgs, jobStart: true });
+  const list = await call(s.ctx, relay.pendingJobRequests, { key: OWNER });
+  assert.deepEqual(list.map((r: { requestId: string; state: string }) => [r.requestId, r.state]), [['req-job-0001', 'claimed'], ['req-job-0003', 'pending']]);
 });
