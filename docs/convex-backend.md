@@ -361,6 +361,14 @@ phone names must be one that has heartbeated (or `"any"`), else
   queued as an `interrupt` command, which ends the thread's running turn as
   Stop on the Mac does. Runners have applied it since API 44 (the main
   Mac sends it for another runner's thread).
+- `phone:startRequest({ token, threadId, approvalId })` (API 106) → the
+  free-text request a runner key filed, as filed, or `null` (not pending, a
+  job's, or not that thread's), and `phone:startRequestNow({ token,
+  threadId, approvalId, docId })` → commandId: Start it, queued as a
+  `startRequest` command for the main Mac, which starts it only with the
+  `multiMacJobs` experiment on, after reading the row again
+  (docs/protocol/runners.md, "Asking another runner", "From the phone").
+  Don't is `phone:respond` with `deny`.
 - `phone:respond({ token, threadId, approvalId, decision: "allow" |
   "allowAlways" | "deny", message? })`
 - `phone:answer({ token, threadId, approvalId, answers: Record<string,

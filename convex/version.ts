@@ -508,4 +508,10 @@
 //    requests, and relay:decideRequest takes `jobStart`, the only way to
 //    claim or allow a request that names a job. A runner sends `jobStart`
 //    only to a backend of 105 or later.
-export const API_VERSION = 105;
+// 106: Start it from the phone on a runner key's free-text request
+//    (docs/protocol/runners.md, "Asking another runner", "From the phone"):
+//    phone:startRequest reads the request as filed and phone:startRequestNow
+//    queues a `startRequest` command for the main Mac, which starts it only
+//    with the multiMacJobs experiment on. A runner that doesn't know the
+//    command fails it as unknown; the phone is told so by the command's state.
+export const API_VERSION = 106;

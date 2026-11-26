@@ -540,7 +540,8 @@ export const command = query({
     // to parse: its notes are keyed by option id, which can be any text, and
     // Convex refuses an object key that isn't plain ASCII or starts with "$".
     if (c.kind === 'designReviews' && c.result) result = c.result;
-    else if (c.kind === 'slashCommands' && c.result) {
+    // A phone's Start it (API 106): the thread the main Mac started.
+    else if ((c.kind === 'slashCommands' || c.kind === 'startRequest') && c.result) {
       try {
         result = JSON.parse(c.result);
       } catch {
@@ -948,6 +949,85 @@ export const interrupt = mutation({
     await checkPhoneToken(ctx, token);
     const t = await findThread(ctx, threadId);
     return queue(ctx, t.runnerId, 'interrupt', threadId, {});
+  },
+});
+
+// A runner key's free-text start request (backend API 106, docs/protocol/runners.md,
+// "Asking another runner", "From the phone"): the one the phone may read and
+// start. Nothing but a pending request of that thread's, and never a job's,
+// which the job starter alone starts.
+async function startableRequest(ctx: QueryCtx, threadId: string, approvalId: string) {
+  const r = await ctx.db.query('runnerRequests').withIndex('by_requestId', (q) => q.eq('requestId', approvalId)).first();
+  if (!r || r.threadId !== threadId) return null;
+  return r;
+}
+
+// The request as filed, for the phone to show. The row can't change after it
+// is filed, so `docId` names exactly what is shown.
+export const startRequest = query({
+  args: { token: v.string(), threadId: v.string(), approvalId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      docId: v.string(),
+      requestId: v.string(),
+      threadId: v.string(),
+      runnerId: v.string(),
+      runnerName: v.string(),
+      target: v.string(),
+      text: v.string(),
+      title: v.optional(v.string()),
+      cwd: v.optional(v.string()),
+      model: v.optional(v.string()),
+      effort: v.optional(v.string()),
+      permissionMode: v.optional(v.string()),
+      why: v.optional(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, { token, threadId, approvalId }) => {
+    await checkPhoneToken(ctx, token);
+    const r = await startableRequest(ctx, threadId, approvalId);
+    if (!r || r.state !== 'pending' || r.job !== undefined) return null;
+    return {
+      docId: String(r._id),
+      requestId: r.requestId,
+      threadId: r.threadId,
+      runnerId: r.runnerId,
+      runnerName: await runnerName(ctx, r.runnerId),
+      target: r.target,
+      text: r.text,
+      ...(r.title !== undefined ? { title: r.title } : {}),
+      ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
+      ...(r.model !== undefined ? { model: r.model } : {}),
+      ...(r.effort !== undefined ? { effort: r.effort } : {}),
+      ...(r.permissionMode !== undefined ? { permissionMode: r.permissionMode } : {}),
+      ...(r.why !== undefined ? { why: r.why } : {}),
+      createdAt: r.createdAt,
+    };
+  },
+});
+
+// Start it on the phone: the main Mac's runner starts it, as Start it on the
+// Mac does, after reading the row again (runner/src/cross-runner.ts
+// startFromPhone). The command has no thread of its own: the asking thread is
+// on another runner, and a thread's command is only taken by the runner that
+// has the thread (sync:takeCommand), so the main Mac would never get it.
+export const startRequestNow = mutation({
+  args: { token: v.string(), threadId: v.string(), approvalId: v.string(), docId: v.string() },
+  returns: v.id('commands'),
+  handler: async (ctx, { token, threadId, approvalId, docId }) => {
+    await checkPhoneToken(ctx, token);
+    const r = await startableRequest(ctx, threadId, approvalId);
+    if (!r) throw new ConvexError({ kind: 'notFound', message: 'No such request on that thread.' });
+    if (String(r._id) !== docId) throw new ConvexError({ kind: 'badArgs', message: 'That request has changed since the phone showed it.' });
+    if (r.state !== 'pending') throw new ConvexError({ kind: 'badArgs', message: `That request is ${r.state === 'claimed' ? 'being started' : `already ${r.state}`}.` });
+    if (r.job !== undefined) throw new ConvexError({ kind: 'badArgs', message: 'A job request is started by the job starter, not from the phone.' });
+    const runners: Doc<'runners'>[] = [];
+    for await (const x of ctx.db.query('runners')) runners.push(x);
+    const main = await mainOwnerRunner(ctx, runners, true);
+    if (!main) throw new ConvexError({ kind: 'badArgs', message: "The main Mac is offline. Answer it there when it's back." });
+    return queue(ctx, main, 'startRequest', undefined, { threadId, approvalId, docId });
   },
 });
 
@@ -1402,7 +1482,7 @@ async function knownRunner(ctx: QueryCtx, runnerId: string): Promise<string> {
 // what the runner's own pendingCommands reads. One that waits too long goes
 // (sync:pruneFiles, COMMAND_KEEP_MS). Its photos are recorded in commandFiles
 // so a delete elsewhere sees they're still on their way (sync.ts storageInUse).
-async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands' | 'interrupt' | 'designReviews' | 'respondReview', threadId: string | undefined, args: Record<string, unknown>) {
+async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands' | 'interrupt' | 'designReviews' | 'respondReview' | 'startRequest', threadId: string | undefined, args: Record<string, unknown>) {
   let n = 0;
   let bytes = docBytes(args);
   for await (const c of ctx.db.query('commands').withIndex('by_runner_state', (q) => q.eq('runnerId', runnerId).eq('state', 'pending'))) {
