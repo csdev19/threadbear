@@ -48,6 +48,9 @@ export type JobStarterDeps = {
   runners: () => Promise<RunnerRef[]>;
   createHere: (p: { text: string; permissionMode: string; startedBy?: { kind: 'thread'; label: string; threadId?: string; why?: string } }) => Promise<{ id: string }>;
   createThere: (runnerId: string, p: { text: string; permissionMode: string }) => Promise<{ id: string }>;
+  // Hands a started job thread to far-reports (src/far-reports.ts), which
+  // passes its final reply back to the asking thread on the asking Mac.
+  startedJob?: (p: { threadId: string; runnerId: string; runnerName: string; starter: string; askerRunnerId: string; job: string }) => void;
   // Tells the asking thread's card the way it ended, if it has one (best effort).
   respondThere?: (threadId: string, approvalId: string, decision: 'allow' | 'deny', message?: string) => Promise<void>;
   log: { info: (m: string, f?: Record<string, unknown>) => void; warn: (m: string, f?: Record<string, unknown>) => void };
@@ -218,6 +221,8 @@ export class JobStarter {
             : await this.deps.createThere(target.id, { text: w.text, permissionMode: w.mode });
           w.result = { runnerId: target.id, runnerName: target.name, threadId: made.id };
           w.stage = 'allow';
+          // Once, as the thread exists: the allow step may be asked again, this is not.
+          this.deps.startedJob?.({ threadId: made.id, runnerId: target.id, runnerName: target.name, starter: row.threadId, askerRunnerId: row.runnerId, job: row.job });
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
           // Turned down, or never sent: nothing exists. Anything else may.

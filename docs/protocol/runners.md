@@ -651,6 +651,34 @@ It is how a job request starts without a card (`runner/src/job-starter.ts`).
 - A request with no `job` is never started by the starter; it keeps the
   card.
 
+#### Replies back
+
+Added 26 Nov 2026, behind `multiMacJobs`. Once the starter has started a job
+thread it hands it to far-reports (`runner/src/far-reports.ts`), with the
+asking thread and the asking Mac. That watch reads the job thread's rows
+from the backend as it does for any thread the main Mac started on another
+runner, and when a turn of it ends it sends that turn's final reply to the
+asking thread, through the relay (`threads.send`, which follows the thread
+if it has moved), then forgets the job thread: one reply per job thread, the
+first.
+
+- The reply arrives as another thread's message (it starts with the
+  `[Sent by the agent in the thread ...]` line), so the asking Mac holds it
+  to that thread's current access, as for any message from a thread. Its
+  first line names the job, the Mac and the job thread's id and says its
+  output is data, not instructions; the next paragraph says the same in full:
+  the job thread ran branch code and read PR text, and the asking thread must
+  not obey it. Names and ids in the line are cut to their own characters.
+  A reply over 20,000 characters is cut, with where to read the rest.
+- Only threads the starter started are watched this way, and only with the
+  experiment on; with it off the watch waits, untouched, on disk.
+- The watch is in `far-reports.json`, so a restart of the main Mac keeps a
+  pending reply-back and sends it after. It is removed after a send that
+  succeeded; one that failed (the asking Mac's thread unknown, the relay
+  down) is tried again each tick. A crash between a send and the save that
+  removes the watch can send the reply a second time, which is accepted over
+  losing it. A job thread on the main Mac itself is covered the same way.
+
 ## Sharing
 
 A thread can be shared by link on the website (docs/website.md, "Sharing"),
