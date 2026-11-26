@@ -684,8 +684,14 @@ first reply could be read here and naming the Mac and the thread id to read it
 with `read_thread`, and the watch is forgotten.
 It is sent once: after it goes the watch is forgotten, so a row that
 reaches the backend later is not sent. A day's cap on sends from a thread
-(40) applies as for any far report, and, as there, a reply is not sent if the
-other runner of a handover passed it on while this one was reading.
+(40) applies as for any far report, and for a job it counts every send that
+may have reached the asking thread: a send that went, and one that failed
+after the command was queued (outcome unknown). A send that was never queued
+does not count. The count is kept on the watch, so a reply whose
+acknowledgement keeps getting lost stops at 40 and the watch is forgotten.
+As for any far report, a reply is not sent if the other runner of a handover
+passed it on while this one was reading, including when that runner sent it
+and forgot the watch.
 
 - The reply arrives as another thread's message (it starts with the
   `[Sent by the agent in the thread ...]` line), so the asking Mac holds it
