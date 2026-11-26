@@ -427,6 +427,21 @@ test('sends, stops and changes go to the thread runner; settings that only work 
   await assert.rejects(h.relay.call(T, 'threads.update', { threadId: T, cwd: '/elsewhere' }), /isn't possible through Convex yet/);
 });
 
+test('sendTo queues a send to a runner id and thread id the sidebar index does not know, and says offline when it is', async () => {
+  const h = harness();
+  const send = h.relay.sendTo('mac-mini', 'not-in-the-index', 'hello');
+  await new Promise((r) => setImmediate(r));
+  h.subs.get('relay:commandState')![0]!.onUpdate({ state: 'taken' });
+  await send;
+  const q = h.calls.filter((c) => c.fn === 'relay:queueCommand').at(-1)!;
+  assert.equal(q.args.runnerId, 'mac-mini');
+  assert.equal(q.args.threadId, 'not-in-the-index');
+  assert.equal(q.args.kind, 'send');
+  assert.deepEqual(q.args.args, { text: 'hello' });
+  const off = harness({ online: false });
+  await assert.rejects(off.relay.sendTo('mac-mini', 'x', 'hi'), /offline/);
+});
+
 // 13 Nov: Continue now on for a Pixel thread at its limit was refused as
 // "Changing its login, model or settings isn't possible through Convex yet".
 test("a login or model change goes to the thread's runner as one update, once the backend takes it, and shows what it applied", async () => {

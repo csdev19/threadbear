@@ -1486,9 +1486,11 @@ async function main(): Promise<void> {
     // asking runner holds it to that thread's access as another thread's).
     // Only with multiMacJobs on (src/job-starter.ts).
     jobReports: () => experimentOn(cfg.home, JOB_STARTER_EXPERIMENT),
-    // The relay finds the runner the thread is on now, so a move meanwhile is followed.
-    deliverThere: async (_runnerId, threadId, text) => {
-      await relay.call(threadId, 'threads.send', { threadId, text });
+    // To the runner id and thread id the watch holds, not through the sidebar
+    // index (unwatched after a restart with no app connected). The backend
+    // refuses a runner that no longer has the thread.
+    deliverThere: async (runnerId, threadId, text) => {
+      await relay.sendTo(runnerId, threadId, text);
     },
     // Not while sync is off, nor on a draining or stopping runner: its
     // replacement does it.
