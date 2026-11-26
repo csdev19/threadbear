@@ -23,6 +23,7 @@ import { sayRedOnLanding, sendParams, watchRed, type FixThreads } from './red-wa
 import { WORKER_ENV, detachable, landInBackground, landWorker } from './land-detach.ts';
 import { activityCommand } from './activity.ts';
 import { runnerKeysCommand } from './runner-keys.ts';
+import { jobCommand } from './jobs-cli.ts';
 import { pickRunner } from './moves.ts';
 import { staleRelease } from './release.ts';
 
@@ -195,6 +196,10 @@ const HELP = `tb: talk to the Threadbear runner
                                   what the old shared key could have left (tokens, keys,
                                   schedules, cards, messages, pictures), numbered; --drop
                                   takes out those rows, if the listing hasn't changed
+  tb job list | set <file.json> | remove <name>
+                                  on the main Mac: the named jobs another Mac's agents may ask it
+                                  to start (docs/protocol/runners.md, "Jobs"). set replaces the
+                                  whole list with the JSON array in the file; remove drops one
   tb retitle [<threadId>...] [--dry-run] [--json]
                                   a model title for every thread still named by its first line,
                                   or for the ones given (never one named by hand)
@@ -242,6 +247,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   rpc: [],
   land: ['dry-run', 'despite-red', 'allow-format', 'full'],
   'red-watch': ['quiet'],
+  job: [],
   runner: ['ssh', 'out', 'id', 'json', 'finish', 'replace', 'drop', 'snapshot', 'keys-checked', 'lock-out', 'purge', 'read-others'],
 };
 
@@ -325,9 +331,9 @@ async function main(argv: string[]): Promise<number> {
     if (!worker && detachable()) return landInBackground(argv);
     return landCommand(cfg, Boolean(values['dry-run']), worker?.onLocked, typeof values['allow-format'] === 'string' ? values['allow-format'] : undefined, Boolean(values.full));
   }
-  // tb runner uses this Mac's keys straight from disk, so the runner never
+  // tb runner and tb job use this Mac's keys straight from disk, so the runner never
   // sees them to refuse them (tb-connect.ts).
-  if (cmd === 'runner') {
+  if (cmd === 'runner' || cmd === 'job') {
     // The data dir as the disk has it now, once: the check and the command
     // both use this path, so a link swapped after the check can't send the
     // command to another folder's keys (Codex's fourth review).
@@ -338,6 +344,8 @@ async function main(argv: string[]): Promise<number> {
       return 1;
     }
   }
+  // tb job is the same: this Mac's owner key straight to the backend.
+  if (cmd === 'job') return jobCommand(cfg, args);
   // Straight to the backend with this Mac's key, so no runner needed either.
   if (cmd === 'runner') {
     const flags = { ...(typeof values.ssh === 'string' ? { ssh: values.ssh } : {}), ...(typeof values.out === 'string' ? { out: values.out } : {}), ...(typeof values.id === 'string' ? { id: values.id } : {}), json: Boolean(values.json), finish: Boolean(values.finish), replace: Boolean(values.replace), readOthers: Boolean(values['read-others']), ...(Array.isArray(values.drop) ? { remove: values.drop as string[] } : {}), ...(typeof values.snapshot === 'string' ? { snapshot: values.snapshot } : {}), keysChecked: Boolean(values['keys-checked']), ...(Array.isArray(values['lock-out']) ? { lockOut: values['lock-out'] as string[] } : {}), purge: Boolean(values.purge) };
