@@ -4504,6 +4504,9 @@ export class ConvexSync {
   // ssh), restart onto it, as the key is read at start and nobody may be
   // at that Mac to restart it.
   private onKeyRejected(): void {
+    // A key the backend turns down reads nothing: the read tier word goes, and the
+    // index drops its watch and tells the app the other Macs are gone.
+    if (this.keyReads) this.noteReads(false);
     if (!this.keyRejected) {
       this.keyRejected = true;
       this.deps.log.error('convex turned down this runner\'s key', { runnerId: this.runnerId });
