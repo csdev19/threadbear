@@ -14,7 +14,7 @@
 // `multiMacJobs` experiment on (main.ts), and polls (TICK_MS).
 import crypto from 'node:crypto';
 import { ErrorCode, RpcError } from './protocol.ts';
-import { refused, type RunnerRef } from './cross-runner.ts';
+import { REQUEST_WAIT_MIN, refused, type RunnerRef } from './cross-runner.ts';
 import { wasNotSent } from './relay.ts';
 import { valuesProblem } from './job-values.ts';
 
@@ -137,6 +137,8 @@ export class JobStarter {
     const backend = this.deps.backend();
     if (!backend) return;
     const deny = (reason: string) => this.run(this.remember({ row, stage: 'deny', claim: '', reason }));
+    // The asker's card stopped waiting after REQUEST_WAIT_MIN minutes; nothing starts after that, whether or not the target is online.
+    if (this.deps.now() - row.createdAt > REQUEST_WAIT_MIN * 60_000) return deny(`The request waited longer than its asking thread waits (${REQUEST_WAIT_MIN} minutes), so nothing was started.`);
     const job = (await backend.jobsList()).find((j) => j.name === row.job);
     if (!job) return deny(`There is no job "${row.job}" any more, so nothing was started.`);
     // The job's own target, as the request was filed for, and only as an id.

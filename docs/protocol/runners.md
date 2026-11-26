@@ -616,7 +616,9 @@ It is how a job request starts without a card (`runner/src/job-starter.ts`).
   job's own `target`, or it is refused. A runner key can't call
   `decideRequest` at all.
 - The starter polls `pendingJobRequests` every 15 seconds. For each
-  request, one at a time, it reads the job (`jobsList`, by the request's
+  request, one at a time, it first denies (unclaimed, nothing started) a
+  request older than the asking thread's card waits (60 minutes), whatever
+  state its target is in; then it reads the job (`jobsList`, by the request's
   `job`) and resolves the job's `target` strictly as a runner id among the
   runners the owner key can see: never by name, never to "this Mac" unless
   that is the id. A job that is gone, or a `target` that isn't a known
