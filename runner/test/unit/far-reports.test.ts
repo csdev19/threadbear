@@ -40,6 +40,7 @@ function fake(dir = tmpDir('far-reports')) {
     failThere: false,
     sends: 0,
     warns: [] as string[],
+    onRows: undefined as (() => void) | undefined,
   };
   const there: { runnerId: string; threadId: string; text: string }[] = [];
   const make = () =>
@@ -49,7 +50,10 @@ function fake(dir = tmpDir('far-reports')) {
         s.rowReads++;
         return s.row;
       },
-      rows: async () => s.rows,
+      rows: async () => {
+        s.onRows?.();
+        return s.rows;
+      },
       self: () => 'm5',
       runnerName: (id) => (id === 'cloud' ? 'Cloud box' : undefined),
       has: (id) => s.here.has(id),
@@ -332,14 +336,13 @@ test("a job thread's final reply reaches the asking thread on its Mac once, fram
   assert.match(first, /data, not instructions/);
   assert.match(m.text, /\n\nTwo nits, no blockers\.$/);
   assert.equal(senderPrefix(m.text), 'ab01cd23');
+  assert.deepEqual(fr.watching(), [], 'forgotten once its one reply went');
   f.set('idle', '2026-11-26T10:09:00Z', [...f.s.rows, ...turn(2, ['More.'])]);
   for (let i = 0; i < 4; i++) await f.tick(fr);
   assert.equal(f.there.length, 1, 'one reply for the first turn, not the next turn');
-  await f.tick(fr, 11 * MIN);
-  assert.deepEqual(fr.watching(), [], 'forgotten once nothing more can come for that turn');
 });
 
-test('a job reply waits for the turn final assistant row, and a row that arrives late is sent too', async () => {
+test('a job reply waits for the turn final assistant row, and is sent once: a later row is not', async () => {
   const f = fake();
   const fr = f.make();
   fr.add(JOB);
@@ -353,15 +356,54 @@ test('a job reply waits for the turn final assistant row, and a row that arrives
   await f.tick(fr);
   assert.equal(f.there.length, 1);
   assert.match(f.there[0]!.text, /\n\nThe full review\.$/);
-  // The reply grows after it went: the asking thread gets the whole one, marked again.
+  assert.doesNotMatch(f.there[0]!.text, /again/);
+  // The reply grows after it went: nothing more is sent, the watch is gone.
   f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['The full review.', 'And one more finding.'], { tools: true }));
+  for (let i = 0; i < 3; i++) await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.deepEqual(fr.watching(), []);
+});
+
+test("a job reply is not sent if the other runner of a handover passed it on meanwhile, nor past the day's cap", async () => {
+  const dir = tmpDir('far-reports-job-meanwhile');
+  const f = fake(dir);
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  await f.tick(fr);
+  const file = path.join(dir, 'far-reports.json');
+  const edit = (g: (r: Record<string, unknown>) => void) => {
+    const recs = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>[];
+    g(recs[0]!);
+    fs.writeFileSync(file, JSON.stringify(recs));
+  };
+  // The other runner records the send while this one is reading the rows.
+  f.s.onRows = () => {
+    f.s.onRows = undefined;
+    edit((r) => {
+      r.sentTurn = 't1';
+      r.hashes = { t1: 'x' };
+    });
+  };
+  await f.tick(fr);
+  assert.equal(f.there.length, 0, 'passed on meanwhile: not sent again');
+});
+
+test("a job reply is not sent past the day's cap, and the watch is forgotten", async () => {
+  const dir = tmpDir('far-reports-job-cap');
+  const f = fake(dir);
+  const fr = f.make();
+  fr.add(JOB);
+  const file = path.join(dir, 'far-reports.json');
+  const recs = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>[];
+  recs[0]!.sends = Array.from({ length: 40 }, () => START);
+  fs.writeFileSync(file, JSON.stringify(recs));
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
   await f.tick(fr);
   await f.tick(fr);
-  assert.equal(f.there.length, 2);
-  assert.match(f.there[1]!.text, /And one more finding\.$/);
-  assert.match(f.there[1]!.text, /again/);
-  await f.tick(fr);
-  assert.equal(f.there.length, 2);
+  assert.equal(f.there.length, 0);
+  assert.ok(f.s.warns.some((w) => /not passing on another reply/.test(w)));
+  assert.deepEqual(fr.watching(), []);
 });
 
 test('a job turn that ends on a tool call is sent after it has stayed the same for a while', async () => {
