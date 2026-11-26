@@ -603,6 +603,14 @@ test("from the phone: a folder that isn't here declines the card with why, as St
   assert.equal(f.rows.get('req-p1')!.state, 'denied');
 });
 
+test('from the phone: a request filed with an empty mode starts with full access too', async () => {
+  const f = fake({ owner: true, phoneStarts: true });
+  f.rows.set('req-p1', phoneRow({ permissionMode: '' as never }));
+  f.setOpen('req-p1');
+  await f.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.equal(JSON.parse(f.log.find((l) => l.startsWith('there '))!.slice('there mini1 '.length)).permissionMode, 'full');
+});
+
 // The phone's card says "Full access (none asked for)" for a request with no
 // mode, and the destination's own default (Ask, Auto) would otherwise apply
 // when the thread is made, so the phone's start binds Full access explicitly.

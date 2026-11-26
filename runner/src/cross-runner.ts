@@ -367,7 +367,7 @@ export class CrossRunner {
       // Said before claiming, so it can be tried again once that Mac is back.
       if (!target.self && target.online === false) throw other(`${target.name} is offline. Try again once it's back.`);
       const { text, title, model, effort, why } = row;
-      const permissionMode = row.permissionMode ?? modeIfNone;
+      const permissionMode = modeIfNone ? row.permissionMode || modeIfNone : row.permissionMode;
       if (target.self && place && 'missing' in place) {
         // Nothing Mike can pick here would make it right, and the agent
         // waits an hour for a card that can't start: it's told why
