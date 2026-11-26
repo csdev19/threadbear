@@ -236,7 +236,7 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   `tb runner` does (the thread's own runner's keys, Full access). `set` replaces the
   whole list with the JSON array in the file (the shape `relay:setJobs` takes; `[]`
   clears it) and prints the backend's refusal if a job is wrong; `remove` drops one by
-  name and keeps the rest; `list` shows each job's target (id and name), repos,
+  name and sets the list again without it (a `set` landing in between is overwritten); `list` shows each job's target (id and name), repos,
   params with types, mode, rate and brief.
 - `tb activity` (and `--summary`): what Mike has clicked, opened, chosen and
   sent in the app lately, or what he uses most, while he has the activity log
