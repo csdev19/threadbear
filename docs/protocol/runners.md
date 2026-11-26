@@ -665,8 +665,10 @@ Mac has nothing until an app connects. The reply is not the job's last word:
 later turns are not sent. It is sent once the turn's last row is the
 assistant's words and the reply has stayed the same for a second look; a
 turn that ends on a tool call goes after staying the same for two minutes.
-The watch stays ten minutes after the send, and a row that reached the
-backend late goes after the first, marked as the reply again.
+It is sent once: after it goes the watch is forgotten, so a row that
+reaches the backend later is not sent. A day's cap on sends from a thread
+(40) applies as for any far report, and, as there, a reply is not sent if the
+other runner of a handover passed it on while this one was reading.
 
 - The reply arrives as another thread's message (it starts with the
   `[Sent by the agent in the thread ...]` line), so the asking Mac holds it
