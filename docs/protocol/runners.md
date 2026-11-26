@@ -601,14 +601,18 @@ It is how a job request starts without a card (`runner/src/job-starter.ts`).
   `claimed`). A request with no `job` is never in it. A `claimed` one is in
   it only once its claim is more than 10 minutes old: a starter that
   stopped between its claim and its answer. The starter never starts that
-  one again, since a thread may already exist: it hands it back and denies
-  it with a "may have started" reason, and tells the asking thread.
+  one again, since a thread may already exist: it denies it straight from
+  `claimed` with a "may have started" reason, and tells the asking thread.
 - `relay:decideRequest` takes `jobStart` (boolean). With `claimed` or
   `allowed` on a row with `job`, the owner key may pass `jobStart: true`;
   without it that is refused as above, so a runner that never sends it
   (every release before the starter) can't start a job request. `jobStart`
   on a row with no `job` is refused (`badArgs`), whatever the state asked
-  for. With `jobStart` and `allowed`, the `result.runnerId` must be the
+  for. With `jobStart`, `denied` is also taken
+  from `claimed` on a row with `job`, so the starter never hands a claim back
+  to `pending` before denying it (a crash between the two would let the next
+  poll start the job again); without it, and on a row with no `job`,
+  `denied` still comes only from `pending`. With `jobStart` and `allowed`, the `result.runnerId` must be the
   job's own `target`, or it is refused. A runner key can't call
   `decideRequest` at all.
 - The starter polls `pendingJobRequests` every 15 seconds. For each
@@ -628,7 +632,7 @@ It is how a job request starts without a card (`runner/src/job-starter.ts`).
   effort. If the target is the main Mac itself it starts it here, as the
   card path's create does. Then it marks the request `allowed` with
   `jobStart` and where it started. It never leaves a request `claimed`: a
-  start that fails hands the claim back and denies the request with the
+  start that fails denies the request from `claimed` with the
   reason, and if the target didn't answer (so the thread may exist) it does
   the same with a reason that says it may have started, so the asking
   thread is told and nothing is ever started a second time. A request

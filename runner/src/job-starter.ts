@@ -79,8 +79,9 @@ export function fillBrief(brief: string, values: Record<string, string>, params:
   return brief.replace(PLACEHOLDER, (whole, name: string) => (has(params, name) && has(values, name) ? values[name]! : whole));
 }
 
-type Stage = 'claim' | 'start' | 'allow' | 'release' | 'deny';
-type Work = { row: JobRequestRow; stage: Stage; claim: string; text?: string; mode?: string; target?: RunnerRef; result?: { runnerId: string; runnerName: string; threadId: string }; reason?: string };
+type Stage = 'claim' | 'start' | 'allow' | 'deny';
+// `claimed`: the row is (or was) held by a claim, so its deny goes straight from claimed (jobStart).
+type Work = { row: JobRequestRow; stage: Stage; claim: string; claimed?: boolean; text?: string; mode?: string; target?: RunnerRef; result?: { runnerId: string; runnerName: string; threadId: string }; reason?: string };
 
 export class JobStarter {
   private deps: JobStarterDeps;
@@ -107,10 +108,10 @@ export class JobStarter {
         // Only a request that names a job: a free-text one keeps its card.
         if (typeof row.job !== 'string' || row.job === '' || this.work.has(row.requestId) || this.finished.has(row.requestId)) continue;
         // A claim this runner doesn't hold is one it lost by stopping. A thread may
-        // already exist on the target, so it is never started again: handed back, then denied.
+        // already exist on the target, so it is never started again: denied straight from claimed.
         if (row.state === 'claimed') {
           const reason = `The main Mac stopped while starting the job "${row.job}". It may have started on its target: look there before asking again.`;
-          await this.guard(row, () => this.run(this.remember({ row, stage: 'release', claim: '', reason })));
+          await this.guard(row, () => this.run(this.remember({ row, stage: 'deny', claim: '', claimed: true, reason })));
           continue;
         }
         await this.guard(row, () => this.begin(row));
@@ -185,6 +186,7 @@ export class JobStarter {
           if (refused(e)) return this.done(w);
           throw e;
         }
+        w.claimed = true;
         w.stage = 'start';
       } else if (w.stage === 'start') {
         const { target } = w;
@@ -201,7 +203,7 @@ export class JobStarter {
           // Turned down, or never sent: nothing exists. Anything else may.
           const nothing = wasNotSent(e) || (e instanceof RpcError && e.code === ErrorCode.badParams);
           w.reason = nothing ? `${target.name} couldn't start the job (${why}), so nothing was started.` : `${target.name} didn't say it started the job (${why}). It may have started: look there before asking again.`;
-          w.stage = 'release';
+          w.stage = 'deny';
         }
       } else if (w.stage === 'allow') {
         try {
@@ -212,16 +214,10 @@ export class JobStarter {
         this.deps.log.info('started a job', { requestId: row.requestId, job: row.job, runnerId: w.result?.runnerId, threadId: w.result?.threadId });
         await this.deps.respondThere?.(row.threadId, row.requestId, 'allow').catch(() => undefined);
         return this.done(w);
-      } else if (w.stage === 'release') {
-        try {
-          await decide('pending');
-        } catch (e) {
-          if (!refused(e)) throw e;
-        }
-        w.stage = 'deny';
       } else {
         try {
-          await decide('denied');
+          // Never through pending: a crash between the two would leave the row pending, and the next tick would start a second thread.
+          await decide('denied', w.claimed ? { jobStart: true } : {});
         } catch (e) {
           if (!refused(e)) throw e;
         }

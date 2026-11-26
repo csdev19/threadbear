@@ -720,7 +720,8 @@ export const runnerRequest = query({
 // request machine's (requestMachine.ts): it claims one before starting it
 // (so a retry, or another click, can't start a second), then marks it
 // allowed with where it started; it hands a claim back only when starting
-// failed here; it says no only to a pending one. Each `state` it asks for
+// failed here; it says no only to a pending one (or, for a job request with
+// `jobStart`, to a claimed one). Each `state` it asks for
 // is that machine's event.
 const EVENTS = { claimed: 'CLAIM', allowed: 'ALLOW', pending: 'HAND_BACK', denied: 'DENY' } as const;
 const CLAIM = /^[A-Za-z0-9_-]{8,64}$/;
@@ -760,6 +761,10 @@ export const decideRequest = mutation({
       // Where it started is the job's own target, whatever the starter says.
       if (state === 'allowed' && result?.runnerId !== r.target) throw new ConvexError({ kind: 'badArgs', message: "a job request starts at the job's own target" });
     }
+    // A job request the starter can't finish is denied straight from claimed
+    // (never handed back first: a crash between the two would let the next
+    // starter start it again). A plain request keeps its moves.
+    if (state === 'denied' && r.state === 'claimed' && !(jobStart && r.job !== undefined)) throw new ConvexError({ kind: 'badArgs', message: `that request is ${r.state}` });
     if (steppingFor('requestState')) return await decideAsBefore(ctx, r, state, result, claim);
     if (state === 'allowed' && !result && r.state === 'claimed') throw new ConvexError({ kind: 'badArgs', message: 'an allowed request says where it started' });
     const type = EVENTS[state];
@@ -882,7 +887,8 @@ export const jobsList = query({
 // otherwise leave its request claimed. The machine has never run on this
 // deployment then, so the old fields are the request's whole story; a row
 // the backfill has already reached gets its requestState again from them.
-const MOVES_BEFORE: Record<string, string[]> = { claimed: ['pending'], allowed: ['claimed'], pending: ['claimed'], denied: ['pending'] };
+// (A job request's claimed to denied is let through by decideRequest before this.)
+const MOVES_BEFORE: Record<string, string[]> = { claimed: ['pending'], allowed: ['claimed'], pending: ['claimed'], denied: ['pending', 'claimed'] };
 async function decideAsBefore(ctx: MutationCtx, r: Doc<'runnerRequests'>, state: 'claimed' | 'allowed' | 'pending' | 'denied', result: Doc<'runnerRequests'>['result'], claim: string | undefined): Promise<null> {
   if (state === 'claimed' && r.state === 'claimed' && claim !== undefined && r.claim === claim) return null;
   if (!MOVES_BEFORE[state]!.includes(r.state)) throw new ConvexError({ kind: 'badArgs', message: `that request is ${r.state}` });

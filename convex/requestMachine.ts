@@ -55,6 +55,7 @@ export const request = unlessStepping('requestState', () => defineMachine(
           CLAIM: { guard: 'sameClaim', description: 'The same claim asking again after its answer was lost: told yes, and nothing changes.' },
           ALLOW: { to: 'allowed', effect: 'allow', description: 'The thread started: the request says where.' },
           HAND_BACK: { to: 'pending', effect: 'handBack', description: "Starting it failed on the main Mac: it waits for Mike again, and the next claim is a new one." },
+          DENY: { to: 'denied', effect: 'deny', description: "A job request the job starter can't finish (the start may or may not have happened): denied at once, never handed back first, so a crash between the two can't start it twice. Only for a request that names a job, from the job starter's own call (relay.ts decideRequest checks both)." },
         },
       },
       allowed: { description: 'The thread was started, on the runner `result` names.' },
