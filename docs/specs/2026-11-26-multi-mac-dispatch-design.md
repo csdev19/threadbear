@@ -60,7 +60,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | 1 | Jobs contract: `jobs` table (owner writes, runner keys read), `fileRequest` takes `job` + `params`, backend validation and rate cap | AC1, AC2, AC7 | 🔴 High | — |
 | 2 | Main Mac job starter: owner query of pending requests, auto-start of valid job requests by runner id with the pinned mode and an honest first line | AC3, AC4, AC5, AC6 | 🔴 High | 1 |
-| 3 | Replies back: far-reports watches request-started threads and delivers each final reply to the asking runner's thread | AC8 | 🟡 Medium | 2 |
+| 3 | Replies back: far-reports watches request-started threads and delivers a job thread's first-turn reply to the asking runner's thread | AC8 | 🟡 Medium | 2 |
 | 4 | Phone approval of free-text requests through the main Mac | AC9 | 🟡 Medium | 2 |
 | 5 | Read tier: per-key flag, allowlisted reads, laptop sidebar and Runs on (jobs and free text) | AC10, AC11, AC12 | 🔴 High | 1 |
 | 6 | Docs: SECURITY.md, docs/protocol/keys.md, guide section on jobs; mini hardening checklist | AC13 | 🟢 Low | 1, 5 |
@@ -97,7 +97,7 @@ started from GitHub events; virtual runners; changing what the owner key or the 
 - [ ] **AC5** A free-text request from a runner key is never started without a human answer (unit test).
 - [ ] **AC6** A job-started thread's first line names the job and the asking thread and does not say "allowed by the user" (unit test).
 - [ ] **AC7** Job requests over the job's hourly cap are refused by the backend (unit test).
-- [ ] **AC8** The job thread's final reply arrives in the asking thread on the laptop, marked as from another Mac (unit test, and the hand test in AC3).
+- [ ] **AC8** The reply a job thread's first turn ended with arrives in the asking thread on the laptop, marked as from another Mac (unit test, and the hand test in AC3).
 - [ ] **AC9** The Android app shows Start it on a free-text request card, and starting it creates the thread on the target Mac (hand test on the phone).
 - [ ] **AC10** A runner key with the read flag may call exactly the allowlisted reads; one without it is refused; `remoteBody`, `remoteAccounts` and `remotePools` are refused for both (`runner/test/unit/runner-access.test.ts`).
 - [ ] **AC11** On the M4 laptop with the read flag, the sidebar lists the Mac mini's and the M5's threads and the new-thread box shows Runs on (screenshot).
