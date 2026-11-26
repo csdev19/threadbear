@@ -665,6 +665,8 @@ Mac has nothing until an app connects. The reply is not the job's last word:
 later turns are not sent. It is sent once the turn's last row is the
 assistant's words and the reply has stayed the same for a second look; a
 turn that ends on a tool call goes after staying the same for two minutes.
+This holds when the first turn is no longer the newest (a second turn has
+started): it may still be missing its last row.
 It is sent once: after it goes the watch is forgotten, so a row that
 reaches the backend later is not sent. A day's cap on sends from a thread
 (40) applies as for any far report, and, as there, a reply is not sent if the

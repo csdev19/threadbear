@@ -313,8 +313,10 @@ export class FarReports {
       const reply = replyOf(rows, turn);
       const job = rec.job !== undefined && rec.askerRunnerId !== undefined && this.deps.deliverThere ? { name: rec.job, to: rec.askerRunnerId, send: this.deps.deliverThere } : undefined;
       // The newest turn, ended only by its row's status, goes once a second
-      // look finds it the same. One another turn followed has ended.
-      if (turn === turns[turns.length - 1]) {
+      // look finds it the same. One another turn followed has ended. A job's
+      // reply is held the same way whichever turn it is: a turn that ended
+      // may still be missing its last row.
+      if (isJob || turn === turns[turns.length - 1]) {
         const key = `${turn}:${hash(reply)}`;
         if (rec.pending !== key) {
           rec.pending = key;

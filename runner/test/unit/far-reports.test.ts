@@ -554,3 +554,31 @@ test('a job reply whose first try failed after the command was queued is retried
   assert.equal(senderPrefix(g.there[0]!.text), 'ab01cd23');
   assert.match(g.there[0]!.text, /\n\nDone\.$/);
 });
+
+test('a job turn that is no longer the newest is held by the same settle rule', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  // Turn 1 ends on a tool call and turn 2 has started: turn 1 may still be missing its last row.
+  f.set('running', '2026-11-26T10:01:00Z', [...turn(1, [], { tools: true }), ...turn(2, [])]);
+  for (let i = 0; i < 4; i++) await f.tick(fr);
+  assert.equal(f.there.length, 0, 'not sent while its last row is a tool call');
+  // Its last words arrive: sent after the second look, not before.
+  f.set('running', '2026-11-26T10:01:30Z', [...turn(1, ['The review.'], { tools: true }), ...turn(2, [])]);
+  await f.tick(fr);
+  assert.equal(f.there.length, 0);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.match(f.there[0]!.text, /\n\nThe review\.$/);
+
+  // Otherwise the two-minute fallback sends it.
+  const g = fake();
+  const gr = g.make();
+  gr.add(JOB);
+  g.set('running', '2026-11-26T10:01:00Z', [...turn(1, [], { tools: true }), ...turn(2, [])]);
+  await g.tick(gr);
+  await g.tick(gr);
+  assert.equal(g.there.length, 0);
+  await g.tick(gr, 3 * MIN);
+  assert.equal(g.there.length, 1);
+});
