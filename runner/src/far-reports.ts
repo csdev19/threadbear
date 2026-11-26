@@ -82,8 +82,8 @@ export type FarReportsDeps = {
   runnerName: (runnerId: string) => string | undefined;
   // Whether the starter is one of this runner's threads.
   has: (starter: string) => boolean;
-  // `ceiling`: Rec.by, as a mode (runner/ceiling.ts).
-  deliver: (starter: string, text: string, ceiling: PermissionMode) => void;
+  // `ceiling`: Rec.by, as a mode (runner/ceiling.ts); none for a job reply, which the runner holds at the thread's current access.
+  deliver: (starter: string, text: string, ceiling?: PermissionMode) => void;
   // A job's reply-back (job-starter.ts is the job starter's): the experiment is on
   // (multiMacJobs, read each tick) and how it reaches a thread on another
   // runner, through the relay as the main Mac's own messages there. It throws
@@ -396,7 +396,8 @@ export class FarReports {
           // The asking thread is on this Mac: as any far report to a thread here, not through the relay to itself.
           if (to === this.deps.self()) {
             try {
-              this.deps.deliver(rec.starter, text, ceilingMode(rec.by));
+              // No explicit ceiling: the runner holds a message from a thread at its agentCeiling, as for a relayed one.
+              this.deps.deliver(rec.starter, text);
             } catch (e) {
               throw notSent(e);
             }
