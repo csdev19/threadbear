@@ -229,6 +229,15 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   never a write); `reads on|off` sets or clears it on a live key; `list`
   shows it as `reads`; revoke and a `--replace` without `--read-others`
   clear it.
+- `tb job list`, `tb job set <file.json>`, `tb job remove <name>`: the named
+  jobs another Mac's agents may ask the main Mac to start (docs/protocol/runners.md,
+  "Jobs"), on the main Mac only: it needs the owner key, so a Mac with a runner key
+  is refused before any call, and from a thread's shell it follows the rules
+  `tb runner` does (the thread's own runner's keys, Full access). `set` replaces the
+  whole list with the JSON array in the file (the shape `relay:setJobs` takes; `[]`
+  clears it) and prints the backend's refusal if a job is wrong; `remove` drops one by
+  name and keeps the rest; `list` shows each job's target (id and name), repos,
+  params with types, mode, rate and brief.
 - `tb activity` (and `--summary`): what Mike has clicked, opened, chosen and
   sent in the app lately, or what he uses most, while he has the activity log
   on (Settings > General; off by default, so other people's copies never
