@@ -4,7 +4,7 @@ name: Jobs on other Macs
 title: The main Mac starts named jobs that another Mac asks for, with no card
 added: 2026-11-26
 on: false
-reminder: 00000000
+reminder: 25c8cbe6
 ---
 
 ## What it does
