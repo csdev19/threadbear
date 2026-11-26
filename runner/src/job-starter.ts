@@ -49,8 +49,9 @@ export type JobStarterDeps = {
   createHere: (p: { text: string; permissionMode: string; startedBy?: { kind: 'thread'; label: string; threadId?: string; why?: string } }) => Promise<{ id: string }>;
   createThere: (runnerId: string, p: { text: string; permissionMode: string }) => Promise<{ id: string }>;
   // Hands a started job thread to far-reports (src/far-reports.ts), which
-  // passes its final reply back to the asking thread on the asking Mac.
-  startedJob?: (p: { threadId: string; runnerId: string; runnerName: string; starter: string; askerRunnerId: string; job: string }) => void;
+  // passes the reply back to the asking thread on the asking Mac. False if
+  // the watch wasn't saved: it is tried again on later ticks.
+  startedJob?: (p: { threadId: string; runnerId: string; runnerName: string; starter: string; askerRunnerId: string; job: string }) => boolean | void;
   // Tells the asking thread's card the way it ended, if it has one (best effort).
   respondThere?: (threadId: string, approvalId: string, decision: 'allow' | 'deny', message?: string) => Promise<void>;
   log: { info: (m: string, f?: Record<string, unknown>) => void; warn: (m: string, f?: Record<string, unknown>) => void };
@@ -81,9 +82,9 @@ export function fillBrief(brief: string, values: Record<string, string>, params:
   return brief.replace(PLACEHOLDER, (whole, name: string) => (has(params, name) && has(values, name) ? values[name]! : whole));
 }
 
-type Stage = 'claim' | 'check' | 'start' | 'allow' | 'deny';
+type Stage = 'claim' | 'check' | 'start' | 'allow' | 'watch' | 'deny';
 // `claimed`: the row is (or was) held by a claim, so its deny goes straight from claimed (jobStart).
-type Work = { row: JobRequestRow; stage: Stage; claim: string; claimed?: boolean; text?: string; mode?: string; target?: RunnerRef; result?: { runnerId: string; runnerName: string; threadId: string }; reason?: string };
+type Work = { row: JobRequestRow; stage: Stage; claim: string; claimed?: boolean; text?: string; mode?: string; target?: RunnerRef; result?: { runnerId: string; runnerName: string; threadId: string }; reason?: string; unwatched?: boolean };
 
 export class JobStarter {
   private deps: JobStarterDeps;
@@ -170,6 +171,11 @@ export class JobStarter {
     await this.run(this.remember({ row, stage: 'claim', claim: crypto.randomUUID(), ...got }));
   }
 
+  private watchOf(w: Work, threadId: string) {
+    const { row, target } = w;
+    return { threadId, runnerId: target!.id, runnerName: target!.name, starter: row.threadId, askerRunnerId: row.runnerId, job: row.job };
+  }
+
   private remember(w: Work): Work {
     this.work.set(w.row.requestId, w);
     return w;
@@ -222,7 +228,7 @@ export class JobStarter {
           w.result = { runnerId: target.id, runnerName: target.name, threadId: made.id };
           w.stage = 'allow';
           // Once, as the thread exists: the allow step may be asked again, this is not.
-          this.deps.startedJob?.({ threadId: made.id, runnerId: target.id, runnerName: target.name, starter: row.threadId, askerRunnerId: row.runnerId, job: row.job });
+          w.unwatched = this.deps.startedJob?.(this.watchOf(w, made.id)) === false;
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
           // Turned down, or never sent: nothing exists. Anything else may.
@@ -238,6 +244,11 @@ export class JobStarter {
         }
         this.deps.log.info('started a job', { requestId: row.requestId, job: row.job, runnerId: w.result?.runnerId, threadId: w.result?.threadId });
         await this.deps.respondThere?.(row.threadId, row.requestId, 'allow').catch(() => undefined);
+        if (!w.unwatched) return this.done(w);
+        w.stage = 'watch';
+      } else if (w.stage === 'watch') {
+        // The thread exists and the request is answered: only the reply-back's watch is left to save.
+        if (w.result && this.deps.startedJob?.(this.watchOf(w, w.result.threadId)) === false) throw new Error('the reply-back watch could not be saved yet');
         return this.done(w);
       } else {
         try {

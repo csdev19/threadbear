@@ -37,7 +37,7 @@ function jobRequest(over: Partial<JobRequestRow> = {}): JobRequestRow {
   return { docId: `doc${n}`, requestId: `req-job-${String(n).padStart(4, '0')}`, runnerId: LAPTOP, runnerName: 'laptop', threadId: 'L-thread', job: 'capture-evidence', params: { repo: 'csdev19/threadbear', branch: 'feature/fix-login', pr: '42' }, target: MINI, createdAt: 1000, ...over };
 }
 
-type Opts = { enabled?: boolean; owner?: boolean; ready?: boolean; jobs?: JobRow[]; runners?: RunnerRef[]; failThere?: unknown; failHere?: unknown; failAllow?: number; failClaim?: number; failDeny?: number; now?: number };
+type Opts = { enabled?: boolean; owner?: boolean; ready?: boolean; jobs?: JobRow[]; runners?: RunnerRef[]; failThere?: unknown; failHere?: unknown; failAllow?: number; failClaim?: number; failDeny?: number; failWatch?: number; now?: number };
 
 function fake(rows: JobRequestRow[], opts: Opts = {}) {
   const log: string[] = [];
@@ -47,6 +47,7 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
   let failAllow = opts.failAllow ?? 0;
   let failClaim = opts.failClaim ?? 0;
   let failDeny = opts.failDeny ?? 0;
+  let failWatch = opts.failWatch ?? 0;
   const refused = (m: string) => Object.assign(new Error(m), { data: { kind: 'badArgs' } });
   const deps: JobStarterDeps = {
     enabled: () => opts.enabled ?? true,
@@ -110,7 +111,14 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
     respondThere: async (threadId, approvalId, decision, message) => {
       log.push(`respond ${threadId} ${approvalId} ${decision}${message ? ` ${message}` : ''}`);
     },
-    startedJob: (p) => watched.push(p),
+    startedJob: (p) => {
+      if (failWatch > 0) {
+        failWatch--;
+        return false;
+      }
+      watched.push(p);
+      return true;
+    },
     log: { info: () => {}, warn: (m: string) => log.push(`warn ${m}`) },
     now: () => opts.now ?? 2000,
   };
@@ -497,4 +505,23 @@ test('layer 3: a started job thread is handed to the reply-back once, with its a
   await f.starter.tick();
   await f.starter.tick();
   assert.deepEqual(f.watched, [{ threadId: 'T-there', runnerId: MINI, runnerName: 'mac-mini', starter: 'L-thread', askerRunnerId: LAPTOP, job: 'capture-evidence' }]);
+});
+
+test('layer 3: a watch that could not be saved is registered again on later ticks, with nothing started twice', async () => {
+  const req = jobRequest();
+  const bad = jobRequest({ job: 'gone' });
+  const f = fake([req, bad], { failWatch: 3 });
+  await f.starter.tick();
+  assert.equal(f.created.length, 1);
+  assert.equal(f.state.get(req.requestId)!.state, 'allowed', 'the request is answered whether or not the watch was saved');
+  assert.equal(f.watched.length, 0);
+  await f.starter.tick();
+  assert.equal(f.watched.length, 0);
+  await f.starter.tick();
+  assert.equal(f.watched.length, 1);
+  assert.equal(f.watched[0]!.threadId, 'T-there');
+  await f.starter.tick();
+  await f.starter.tick();
+  assert.equal(f.created.length, 1, 'never started again');
+  assert.equal(f.watched.length, 1, 'registered once it is saved, no more');
 });

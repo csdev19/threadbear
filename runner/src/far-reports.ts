@@ -197,22 +197,26 @@ export class FarReports {
 
   // Read again before each write, so what another process (a handover's
   // other runner) wrote meanwhile stays.
-  private write(rec: Rec | undefined, dropped?: string): void {
+  // False if it couldn't be saved.
+  private write(rec: Rec | undefined, dropped?: string): boolean {
     const recs = this.read();
     if (rec) recs.set(rec.threadId, rec);
     if (dropped) recs.delete(dropped);
     try {
       atomicWriteFileSync(this.deps.file, JSON.stringify([...recs.values()]));
+      return true;
     } catch (e) {
       this.deps.log.warn("couldn't save far-reports.json", { error: String((e as Error)?.message ?? e) });
+      return false;
     }
   }
 
-  add(p: { threadId: string; runnerId?: string; runnerName: string; starter: string; by: PermissionMode; job?: string; askerRunnerId?: string }): void {
+  add(p: { threadId: string; runnerId?: string; runnerName: string; starter: string; by: PermissionMode; job?: string; askerRunnerId?: string }): boolean {
     // A thread already watched keeps its starter: another runner naming one
     // of its threads as new again can't send its replies elsewhere.
-    if (this.read().has(p.threadId)) return;
-    this.write({ ...p, at: this.deps.now() });
+    if (this.read().has(p.threadId)) return true;
+    // False if it wasn't saved: a job's watch is the only way its reply gets back, so its caller tries again.
+    return this.write({ ...p, at: this.deps.now() });
   }
 
   watching(): string[] {
