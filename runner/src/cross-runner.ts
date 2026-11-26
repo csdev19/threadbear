@@ -265,6 +265,19 @@ export class CrossRunner {
     // A machine this Mac doesn't know: the Mac's own Start it starts it here
     // (and its card says so), but a phone never saw that, so it stays unstarted.
     if (!target) throw bad(`No runner called ${request.target}. Answer it on the Mac.`);
+    // Starting here, `get` has put the folder as read under this Mac's home in
+    // place of the filed one (a missing /Users/laptop/x becomes
+    // /Users/<this home>/x), which the phone never showed. The phone's Start it
+    // binds the folder exactly as filed, so any other place is left for the
+    // Mac's card, which shows it. A folder that isn't here at all stays on the
+    // decline path in `answer`, which tells the thread why.
+    const filed = (await this.row(threadId, approvalId)).cwd;
+    if (target.self && filed) {
+      const place = this.place({ ...request, cwd: filed });
+      if (place && 'folder' in place && place.folder !== filed) {
+        throw bad(`That request's folder is ${filed}, which isn't a folder on the main Mac as named. Answer it on the Mac, where the card shows where it would start.`);
+      }
+    }
     return this.answer(threadId, approvalId, true, target.id, shown);
   }
 
