@@ -507,21 +507,37 @@ test('layer 3: a started job thread is handed to the reply-back once, with its a
   assert.deepEqual(f.watched, [{ threadId: 'T-there', runnerId: MINI, runnerName: 'mac-mini', starter: 'L-thread', askerRunnerId: LAPTOP, job: 'capture-evidence' }]);
 });
 
-test('layer 3: a watch that could not be saved is registered again on later ticks, with nothing started twice', async () => {
+test('layer 3: the watch is saved before the request is allowed; a watch that could not be saved is tried again on later ticks, and nothing is allowed or started twice', async () => {
   const req = jobRequest();
-  const bad = jobRequest({ job: 'gone' });
-  const f = fake([req, bad], { failWatch: 3 });
+  const f = fake([req], { failWatch: 3 });
   await f.starter.tick();
   assert.equal(f.created.length, 1);
-  assert.equal(f.state.get(req.requestId)!.state, 'allowed', 'the request is answered whether or not the watch was saved');
+  assert.equal(f.state.get(req.requestId)!.state, 'claimed', 'not allowed while the watch is unsaved');
   assert.equal(f.watched.length, 0);
   await f.starter.tick();
+  await f.starter.tick();
   assert.equal(f.watched.length, 0);
+  assert.equal(f.state.get(req.requestId)!.state, 'claimed');
   await f.starter.tick();
   assert.equal(f.watched.length, 1);
   assert.equal(f.watched[0]!.threadId, 'T-there');
+  assert.equal(f.state.get(req.requestId)!.state, 'allowed', 'allowed once the watch is saved');
   await f.starter.tick();
   await f.starter.tick();
   assert.equal(f.created.length, 1, 'never started again');
   assert.equal(f.watched.length, 1, 'registered once it is saved, no more');
+});
+
+test('layer 3: a restart while the watch is unsaved leaves the row claimed, and the stale-claim rule denies it as maybe started', async () => {
+  const req = jobRequest();
+  const f = fake([req], { failWatch: 100 });
+  await f.starter.tick();
+  assert.equal(f.created.length, 1);
+  // A new starter (the runner restarted) sees the row still claimed, not allowed.
+  const f2 = fake([req]);
+  f2.state.get(req.requestId)!.state = 'claimed';
+  await f2.starter.tick();
+  assert.equal(f2.created.length, 0);
+  assert.equal(f2.state.get(req.requestId)!.state, 'denied');
+  assert.ok(f2.log.some((l) => /may have started/.test(l)), f2.log.join('\n'));
 });

@@ -681,9 +681,14 @@ other runner of a handover passed it on while this one was reading.
 - Only threads the starter started are watched this way, and only with the
   experiment on; with it off the watch waits, untouched, on disk.
 - The watch is in `far-reports.json`, so a restart of the main Mac keeps a
-  pending reply-back and sends it after. The starter checks that the watch
-  was saved (`add` says so) and tries again on later ticks until it is; the
-  request is answered either way. A send that failed (the asking Mac's thread
+  pending reply-back and sends it after. The starter's stages run claim,
+  check, start, watch, allow: the watch is saved (`add` says so) before the
+  request is allowed, and a save that failed is tried again on later ticks,
+  with the request left `claimed` until it saves. If the runner restarts in
+  between, the row is still `claimed` and the stale-claim rule above denies
+  it with the "may have started" reason, which is honest: the thread exists
+  and nothing would send its reply. A watch kept for a request that is denied
+  later is harmless; the reply still comes. A send that failed (the asking Mac's thread
   gone, the relay down) is tried again less and less often, up to every
   fifteen minutes, and given up on after a day, with one log line. A crash
   between a send and the save of it can send the reply a second time, which
