@@ -366,6 +366,24 @@ test('a hand-back whose answer was lost is asked again next tick, then denied', 
   assert.equal(f.created.length, 0);
 });
 
+test('values that no longer fit the job deny the request unclaimed: a repo taken out, a kind changed, a branch now invalid', async () => {
+  const reason = `The request's values don't fit the job "capture-evidence" any more, so nothing was started.`;
+  const cases: [string, JobRow, Partial<JobRequestRow>][] = [
+    ['repo removed', { ...JOB, repos: ['someone/else'] }, {}],
+    ['int became branch', { ...JOB, params: { repo: 'repo', branch: 'branch', pr: 'branch' } }, { params: { repo: 'csdev19/threadbear', branch: 'main', pr: '-1' } }],
+    ['branch became int', { ...JOB, params: { repo: 'repo', branch: 'int', pr: 'int' } }, {}],
+    ['branch now invalid', JOB, { params: { repo: 'csdev19/threadbear', branch: '--upload-pack=x', pr: '42' } }],
+  ];
+  for (const [name, job, over] of cases) {
+    const req = jobRequest(over);
+    const f = fake([req], { jobs: [job] });
+    await f.starter.tick();
+    assert.equal(f.created.length, 0, name);
+    assert.deepEqual(f.log.filter((l) => l.startsWith('decide')), [`decide ${req.requestId} denied`], name);
+    assert.ok(f.log.some((l) => l.startsWith(`respond L-thread ${req.requestId} deny ${reason}`)), name);
+  }
+});
+
 test('one request failing does not stop the next', async () => {
   const bad = jobRequest({ target: 'ffffffffffff' });
   const good = jobRequest();
