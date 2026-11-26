@@ -1496,7 +1496,8 @@ write jobs: `tb job` there says to run it on this one. With the `multiMacJobs` e
 (Settings > General > Experiments, on the main Mac; off by default), a request from another Mac for
 one of your jobs, with values that fit, starts by itself within about 15
 seconds on the Mac the job names, when that Mac is online and the backend is reachable. If the
-Mac is offline, the request waits up to ten minutes and is then turned down, with the reason. The thread it starts says on its first
+Mac is offline, the request waits: once it has waited ten minutes, the next time the main Mac
+checks and finds it still offline it is turned down, with the reason. The thread it starts says on its first
 line that no person read the request. A request for a job whose Mac this
 one doesn't know is turned down with the reason, never started here, and
 so is one that waited more than an hour. When that thread's first turn
@@ -1520,8 +1521,9 @@ less than a full Mac. Check these once, and again after a change:
 - Its GitHub token is a fine-grained one limited to the job repos, with no
   workflow scope.
 - Each of those repos has branch protection with required review on its default
-  branch, so what the mini pushes can't reach that branch before someone reviews it
-  (before merging).
+  branch, with no bypass for the mini's account (admins and roles allowed to bypass
+  are exempt unless you turn that off), so what the mini pushes can't reach that branch
+  before someone reviews it (before merging).
 - Workflows that run on `pull_request`, or on `push` for other branches, run the mini's
   code in CI before any review. Keep secrets out of those workflows. GitHub's "Require
   approval for workflows" setting covers only forks, so for a branch in the same repo the
