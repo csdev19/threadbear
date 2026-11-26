@@ -965,7 +965,7 @@ export const appSchema = defineSchema({
     .index('by_runnerId', ['runnerId'])
     .index('by_runner_state', ['runnerId', 'state'])
     // The Machines page's counts and lists of requests in a state (viewer.ts).
-    // The job starter reads only the rows that name a job (`job` set sorts after ""), oldest first.
+    // The job starter reads only the rows that name a job (`job` set sorts after ""); a read of it comes in job name order, then oldest first within a name.
     .index('by_state_job', ['requestState.kind', 'job', 'createdAt']),
 
   // Full sync (API 52, docs/archive/full-convex.md step 4; sync.full in runner.json).

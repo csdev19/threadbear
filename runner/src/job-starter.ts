@@ -45,13 +45,12 @@ export type JobStarterDeps = {
         decideRequest(p: { requestId: string; docId: string; state: 'claimed' | 'allowed' | 'pending' | 'denied'; result?: { runnerId: string; runnerName: string; threadId: string }; claim?: string; jobStart?: boolean }): Promise<void>;
       }
     | undefined;
-  self: () => { id: string; name: string };
   runners: () => Promise<RunnerRef[]>;
   createHere: (p: { text: string; permissionMode: string; startedBy?: { kind: 'thread'; label: string; threadId?: string; why?: string } }) => Promise<{ id: string }>;
   createThere: (runnerId: string, p: { text: string; permissionMode: string }) => Promise<{ id: string }>;
   // Tells the asking thread's card the way it ended, if it has one (best effort).
   respondThere?: (threadId: string, approvalId: string, decision: 'allow' | 'deny', message?: string) => Promise<void>;
-  log: { info: (m: string, f?: Record<string, unknown>) => void; warn: (m: string, f?: Record<string, unknown>) => void; debug: (m: string, f?: Record<string, unknown>) => void };
+  log: { info: (m: string, f?: Record<string, unknown>) => void; warn: (m: string, f?: Record<string, unknown>) => void };
   now: () => number;
 };
 

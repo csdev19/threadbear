@@ -287,8 +287,7 @@ const rowOf = (s: Awaited<ReturnType<typeof setup>>, requestId: string) => s.req
 const at = { runnerId: MINI, runnerName: 'mini', threadId: 'T-new' };
 
 test('pendingJobRequests is the owner key only', async () => {
-  const { ACCESS: access } = { ACCESS };
-  assert.equal(access.pendingJobRequests, 'owner');
+  assert.equal(ACCESS.pendingJobRequests, 'owner');
   const s = await setup();
   await s.publish(job());
   await s.ask('capture-evidence', good);

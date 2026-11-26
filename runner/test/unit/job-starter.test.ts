@@ -95,7 +95,6 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
             },
           }
         : undefined,
-    self: () => ({ id: MAIN, name: 'M5' }),
     runners: async () => opts.runners ?? RUNNERS,
     createHere: async (p) => {
       if (opts.failHere) throw opts.failHere;
@@ -110,7 +109,7 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
     respondThere: async (threadId, approvalId, decision, message) => {
       log.push(`respond ${threadId} ${approvalId} ${decision}${message ? ` ${message}` : ''}`);
     },
-    log: { info: () => {}, warn: (m: string) => log.push(`warn ${m}`), debug: () => {} },
+    log: { info: () => {}, warn: (m: string) => log.push(`warn ${m}`) },
     now: () => opts.now ?? 2000,
   };
   return { starter: new JobStarter(deps), log, created, state };

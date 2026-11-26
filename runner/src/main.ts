@@ -1541,7 +1541,6 @@ async function main(): Promise<void> {
   const jobStarter = new JobStarter({
     enabled: () => experimentOn(cfg.home, JOB_STARTER_EXPERIMENT) && !draining && !stopping && !runner.draining,
     backend: () => sync.jobStarterBackend(),
-    self: () => ({ id: syncRunnerId, name: cfg.sync.name ?? defaultRunnerName() }),
     runners: async () => (await scheduler.runners()).map((r) => ({ id: r.id, name: r.name, self: r.self, online: r.online })),
     createHere: async (p) => {
       const mode = permission(p.permissionMode);
