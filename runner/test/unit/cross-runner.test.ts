@@ -563,6 +563,30 @@ test('from the phone: a machine this Mac does not know is refused, never started
   assert.equal(f.rows.get('req-p1')!.state, 'pending');
 });
 
+test('from the phone: a folder this Mac would only reach by a guess is refused, never started somewhere the phone did not show', MAC_FOLDERS, async () => {
+  const f = fake({ owner: true, phoneStarts: true });
+  // The filed home is another Mac's: the card on the Mac would show the folder under this home, the phone showed the filed one.
+  f.dirs.add(`${HOME}/x`);
+  f.rows.set('req-p1', phoneRow({ target: 'main', cwd: '/Users/laptop/x' }));
+  f.setOpen('req-p1');
+  await assert.rejects(f.cross.startFromPhone('c', 'req-p1', 'doc1'), (e: Error) => e.message === "That request's folder is /Users/laptop/x, which isn't a folder on the main Mac as named. Answer it on the Mac, where the card shows where it would start.");
+  // Nothing claimed, started or answered: it stays pending for the Mac's card.
+  assert.deepEqual(f.log, []);
+  assert.equal(f.rows.get('req-p1')!.state, 'pending');
+  // A folder that is here exactly as named starts, in that folder.
+  const g = fake({ owner: true, phoneStarts: true });
+  g.rows.set('req-p1', phoneRow({ target: 'main', cwd: '/opt/work' }));
+  g.setOpen('req-p1');
+  await g.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.match(g.log.find((l) => l.startsWith('here '))!, /"cwd":"\/opt\/work"/);
+  // One for another machine isn't resolved here, so the folder is its own.
+  const h = fake({ owner: true, phoneStarts: true });
+  h.rows.set('req-p1', phoneRow({ cwd: '/Users/laptop/x' }));
+  h.setOpen('req-p1');
+  await h.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.match(h.log.find((l) => l.startsWith('there '))!, /"cwd":"\/Users\/laptop\/x"/);
+});
+
 test("from the phone: a folder that isn't here declines the card with why, as Start it does", MAC_FOLDERS, async () => {
   const f = fake({ owner: true, phoneStarts: true });
   f.rows.set('req-p1', phoneRow({ target: 'main', cwd: '/nowhere/project' }));

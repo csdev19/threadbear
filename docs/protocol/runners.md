@@ -478,13 +478,26 @@ runner that's this one is the usual create.
   that isn't the one the phone showed is refused ("That request has changed
   since the phone showed it."), as is one naming a Mac it doesn't know
   (it is never started on the main Mac instead; one naming the main Mac
-  itself is fine). Then it starts it as Start it on the Mac does
-  (`requests.answer` with the machine the request names and the fingerprint
-  computed there, the claim, the header, the folder rules and a
-  `missingFolder` declined as above), and the command's `result` is the
-  thread it started. The phone never sees the fingerprint, so what holds a
-  start to what it showed is the `docId`: a request filed again under the
-  same id is another row. Don't stays `phone:respond` with `deny`.
+  itself is fine). For a request that starts on the main Mac itself, a
+  filed `cwd` must also be a folder there exactly as named: when the Mac
+  would reach another place (a missing `/Users/laptop/x` read under the
+  main Mac's home as `/Users/<its home>/x`), the command is refused ("That
+  request's folder is <cwd>, which isn't a folder on the main Mac as
+  named. Answer it on the Mac, where the card shows where it would
+  start.") and nothing is claimed or started, so the request stays pending
+  for the Mac's card, which shows the place. A `cwd` that isn't a folder
+  there at all stays the `missingFolder` decline below. Then it starts it
+  as Start it on the Mac does (`requests.answer` with the machine the
+  request names and the fingerprint computed there, the claim, the header,
+  the folder rules and a `missingFolder` declined as above), and the
+  command's `result` is the thread it started.
+  What the phone's approval binds is the filed row, by `docId` (a request
+  filed again under the same id is another row; the phone never sees the
+  fingerprint), and, for a start on the main Mac, the folder exactly as
+  named. It does not bind the folder's real path: symlinks in the named
+  path are followed when the thread starts, as the path names them. A
+  start on another machine uses the folder as filed, which that machine
+  resolves. Don't stays `phone:respond` with `deny`.
 - **The asking runner believes only the backend.** An `allow` for this
   card reads `relay:runnerRequest`: allowed with a result, the tool says
   where the thread started; denied, the user said no; still pending (an
