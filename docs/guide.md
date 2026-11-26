@@ -1470,9 +1470,29 @@ asked about, its values (each a repo from that list, a branch name or a
 whole number), the permission mode it runs in (Ask, Auto, Plan or Full:
 there is no default, so a job is never Full access by leaving it out), how
 many requests an hour it takes, and the brief it starts with, with the
-values filled in. There is no `tb` command to write one yet: jobs are set
-with the backend's `relay:setJobs`, using the main key, and the fields are
-in docs/protocol/runners.md, "Jobs". With the `multiMacJobs` experiment on
+values filled in. You write jobs on this Mac with `tb job set <file.json>`,
+which replaces the whole list with the array in the file, so keep every job
+you want in it; `tb job list` shows them and `tb job remove <name>` drops
+one. A minimal file, with illustrative values (the target is a runner id from
+`sync.runnerId` in that Mac's runner.json, never its name):
+
+```json
+[
+  {
+    "name": "fix-pr",
+    "target": "cb921b2447ea",
+    "repos": ["acme/api", "acme/web"],
+    "params": { "repo": "repo", "pr": "int" },
+    "mode": "auto",
+    "perHour": 6,
+    "brief": "Check out PR {pr} in {repo}, fix what its checks complain about and push."
+  }
+]
+```
+
+The backend checks every job and says what is wrong with one; the fields
+are in docs/protocol/runners.md, "Jobs". A Mac with a runner key can't
+write jobs: `tb job` there says to run it on this one. With the `multiMacJobs` experiment on
 (Settings > General > Experiments, on the main Mac; off by default), a request from another Mac for
 one of your jobs, with values that fit, starts by itself within about 15
 seconds on the Mac the job names. The thread it starts says on its first

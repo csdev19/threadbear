@@ -338,6 +338,14 @@ the owning runner.
 
 ## What runs in the background
 
+- **Writing jobs** (`runner/src/jobs-cli.ts`): `tb job list`, `tb job set <file.json>` and
+  `tb job remove <name>`, only when you run them, on the main Mac. They use the owner key in
+  `secrets/convex-key` to read the named jobs from your Convex backend and, for `set` and
+  `remove`, to replace the whole list there (the file you name is read once, nothing else on
+  disk). `list` also reads the runner list to show each target's name. A runner key is refused
+  before any call, and from a thread's shell they run under the same rules as `tb runner`.
+  Nothing in a job is secret: a runner id, repo names, parameter kinds and a brief template.
+
 - **Starting jobs for another Mac** (`runner/src/job-starter.ts`, experiment
   `multiMacJobs`, off by default): on the main Mac only (the one with the owner key), every 15
   seconds it asks your Convex backend for requests another Mac's runner key filed for one of your
