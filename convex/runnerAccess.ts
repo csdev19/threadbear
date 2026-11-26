@@ -295,6 +295,8 @@ export const ACCESS: Record<string, Access> = {
   fileRequest: 'own',
   runnerRequest: 'own',
   decideRequest: 'owner',
+  // The job starter's list (API 105): the main Mac's runner only.
+  pendingJobRequests: 'owner',
   closeRequest: 'own',
   // Jobs (API 104): only the main Mac's key writes what may run unattended; a
   // runner key reads the list to show and ask for one. A box key may not (BOX_CALLS).

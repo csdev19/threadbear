@@ -277,3 +277,132 @@ test('a job request cannot be claimed or allowed (the old runner path), but can 
   assert.equal(await outcome(decide(a!, 'denied')), 'ok');
   assert.equal(s.requests().find((r) => r.requestId === a!.requestId)!.state, 'denied');
 });
+
+// ---- layer 2: the job starter's two backend pieces (docs/protocol/runners.md, "The job starter")
+
+const claimArgs = { claim: 'claim-abcdefgh' };
+const decide = (s: Awaited<ReturnType<typeof setup>>, row: { requestId: string; _id: unknown }, state: string, extra: Record<string, unknown> = {}, key = OWNER) =>
+  call(s.ctx, relay.decideRequest, { key, requestId: row.requestId, docId: String(row._id), state, ...extra });
+const rowOf = (s: Awaited<ReturnType<typeof setup>>, requestId: string) => s.requests().find((r) => r.requestId === requestId)!;
+const at = { runnerId: MINI, runnerName: 'mini', threadId: 'T-new' };
+
+test('pendingJobRequests is the owner key only', async () => {
+  const { ACCESS: access } = { ACCESS };
+  assert.equal(access.pendingJobRequests, 'owner');
+  const s = await setup();
+  await s.publish(job());
+  await s.ask('capture-evidence', good);
+  assert.equal(await outcome(call(s.ctx, relay.pendingJobRequests, { key: LAPTOP_KEY })), 'forbidden', 'a runner key');
+  assert.equal(await outcome(call(s.ctx, relay.pendingJobRequests, { key: s.boxKey })), 'forbidden', 'a box key');
+  assert.equal(await outcome(call(s.ctx, relay.pendingJobRequests, { key: 'tbr_nobody' })), 'auth', 'no key');
+  assert.equal(await outcome(call(s.ctx, relay.pendingJobRequests, { key: OWNER })), 'ok');
+});
+
+test('pendingJobRequests lists the pending requests that name a job, oldest first, with what the starter needs', async () => {
+  const s = await setup();
+  await s.publish(job());
+  // A free-text request is never in it.
+  await call(s.ctx, relay.fileRequest, { key: LAPTOP_KEY, requestId: 'req-text-0001', threadId: 'L', target: 'main', request: { text: 'do a thing' } });
+  await s.ask('capture-evidence', good);
+  await s.ask('capture-evidence', { ...good, pr: '43' });
+  const list = await call(s.ctx, relay.pendingJobRequests, { key: OWNER });
+  assert.deepEqual(list.map((r: { requestId: string }) => r.requestId), ['req-job-0001', 'req-job-0002']);
+  const [first] = list;
+  assert.deepEqual(Object.keys(first).sort(), ['createdAt', 'docId', 'job', 'params', 'requestId', 'runnerId', 'runnerName', 'target', 'threadId']);
+  assert.equal(first.job, 'capture-evidence');
+  assert.deepEqual(first.params, good);
+  assert.equal(first.runnerId, LAPTOP);
+  assert.equal(first.runnerName, 'laptop');
+  assert.equal(first.threadId, 'L');
+  assert.equal(first.target, MINI);
+  assert.equal(first.docId, String(rowOf(s, 'req-job-0001')._id));
+  // One that is no longer pending leaves the list.
+  await decide(s, rowOf(s, 'req-job-0001'), 'denied');
+  assert.deepEqual((await call(s.ctx, relay.pendingJobRequests, { key: OWNER })).map((r: { requestId: string }) => r.requestId), ['req-job-0002']);
+});
+
+test('pendingJobRequests is bounded at 20', async () => {
+  const s = await setup();
+  await s.publish(job({ perHour: 60 }));
+  // A runner key may have 5 requests waiting, so 5 keys make 25.
+  for (let k = 0; k < 5; k++) {
+    const id = `b1b2c3d4e5f${k}`;
+    const key = `tbr_more${k}`;
+    await s.ctx.db.insert('runnerKeys', { runnerId: id, keyHash: await sha256(key), name: `more${k}`, createdAt: 1 });
+    await call(s.ctx, sync.upsertThreads, { key, threads: [{ ...THREAD_BASICS, threadId: `M${k}`, runnerId: id, title: 'more', view: 'inbox', needsYou: false }] });
+    for (let i = 0; i < 5; i++) await call(s.ctx, relay.fileRequest, { key, requestId: `req-more-${k}-${i}-abc`, threadId: `M${k}`, target: MINI, request: { text: '', job: 'capture-evidence', params: good } });
+  }
+  assert.equal(s.requests().length, 25);
+  assert.equal((await call(s.ctx, relay.pendingJobRequests, { key: OWNER })).length, 20);
+});
+
+test('decideRequest with jobStart: the owner key claims and allows a job request at the job target', async () => {
+  const s = await setup();
+  await s.publish(job());
+  await s.ask('capture-evidence', good);
+  const a = rowOf(s, 'req-job-0001');
+  assert.equal(await outcome(decide(s, a, 'claimed', { ...claimArgs, jobStart: true })), 'ok');
+  assert.equal(rowOf(s, a.requestId).state, 'claimed');
+  assert.equal(await outcome(decide(s, a, 'allowed', { result: at, jobStart: true })), 'ok');
+  const done = rowOf(s, a.requestId);
+  assert.equal(done.state, 'allowed');
+  assert.deepEqual(done.result, at);
+});
+
+test('decideRequest without jobStart still refuses claimed and allowed for a job row (the old runner path)', async () => {
+  const s = await setup();
+  await s.publish(job());
+  await s.ask('capture-evidence', good);
+  const a = rowOf(s, 'req-job-0001');
+  assert.equal(await outcome(decide(s, a, 'claimed', claimArgs)), 'badArgs');
+  assert.equal(await outcome(decide(s, a, 'claimed', { ...claimArgs, jobStart: false })), 'badArgs');
+  // Even once claimed by the starter, an allowed with no jobStart is refused.
+  await decide(s, a, 'claimed', { ...claimArgs, jobStart: true });
+  assert.equal(await outcome(decide(s, a, 'allowed', { result: at })), 'badArgs');
+  assert.equal(rowOf(s, a.requestId).state, 'claimed');
+});
+
+test('decideRequest with jobStart refuses an allowed whose result.runnerId is not the job target', async () => {
+  const s = await setup();
+  await s.publish(job());
+  await s.ask('capture-evidence', good);
+  const a = rowOf(s, 'req-job-0001');
+  await decide(s, a, 'claimed', { ...claimArgs, jobStart: true });
+  assert.equal(await outcome(decide(s, a, 'allowed', { result: { ...at, runnerId: LAPTOP }, jobStart: true })), 'badArgs', 'another runner');
+  assert.equal(await outcome(decide(s, a, 'allowed', { result: { ...at, runnerId: 'mini' }, jobStart: true })), 'badArgs', 'a name');
+  assert.equal(await outcome(decide(s, a, 'allowed', { jobStart: true })), 'badArgs', 'no result');
+  assert.equal(rowOf(s, a.requestId).state, 'claimed');
+  assert.equal(await outcome(decide(s, a, 'allowed', { result: at, jobStart: true })), 'ok');
+});
+
+test('decideRequest with jobStart on a row that names no job is refused', async () => {
+  const s = await setup();
+  await call(s.ctx, relay.fileRequest, { key: LAPTOP_KEY, requestId: 'req-text-0001', threadId: 'L', target: 'main', request: { text: 'do a thing' } });
+  const a = rowOf(s, 'req-text-0001');
+  assert.equal(await outcome(decide(s, a, 'claimed', { ...claimArgs, jobStart: true })), 'badArgs');
+  assert.equal(await outcome(decide(s, a, 'denied', { jobStart: true })), 'badArgs');
+  assert.equal(rowOf(s, a.requestId).state, 'pending');
+  // As it was: the card path claims it.
+  assert.equal(await outcome(decide(s, a, 'claimed', claimArgs)), 'ok');
+});
+
+test('a runner key cannot decide a request at all, with or without jobStart', async () => {
+  const s = await setup();
+  await s.publish(job());
+  await s.ask('capture-evidence', good);
+  const a = rowOf(s, 'req-job-0001');
+  assert.equal(await outcome(decide(s, a, 'claimed', { ...claimArgs, jobStart: true }, LAPTOP_KEY)), 'forbidden');
+  assert.equal(await outcome(decide(s, a, 'denied', {}, LAPTOP_KEY)), 'forbidden');
+  assert.equal(rowOf(s, a.requestId).state, 'pending');
+});
+
+test('a started job request can be handed back and denied, as any other claim', async () => {
+  const s = await setup();
+  await s.publish(job());
+  await s.ask('capture-evidence', good);
+  const a = rowOf(s, 'req-job-0001');
+  await decide(s, a, 'claimed', { ...claimArgs, jobStart: true });
+  assert.equal(await outcome(decide(s, a, 'pending')), 'ok');
+  assert.equal(await outcome(decide(s, a, 'denied')), 'ok');
+  assert.equal(rowOf(s, a.requestId).state, 'denied');
+});

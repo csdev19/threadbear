@@ -575,9 +575,8 @@ other than the job's, any text (`text` is `""`: the brief is the job's),
 and `title`, `cwd`, `model`, `effort`, `permissionMode` and `why` (the
 job decides them). Over the job's `perHour` it refuses with `tooMany`.
 The row keeps `job` and `params`, and `runnerRequest` returns them. A
-request with no `job` is what it was. This layer only files and
-validates: nothing starts a job request yet, with or without a card.
-Start it on a job request's card denies it, with the reason "Job requests
+request with no `job` is what it was. Start it on a job request's card
+(a card path with no job starter) denies it, with the reason "Job requests
 are started by the job starter, not from a card".
 
 `relay:decideRequest` holds the same rule in the backend, so a main Mac
@@ -585,8 +584,58 @@ still on the previous runner release can't start one either: that
 release's card path ignores `job` and would start an empty thread with no
 permission mode, which is Full access. For a row that has `job`, it
 refuses (`badArgs`) the `claimed` and `allowed` moves, and the old path
-claims before it creates any thread. Handing a request back (`pending`)
-and denying it still work. The rule goes when the job starter exists.
+claims before it creates any thread, unless the call says `jobStart: true`
+(below). Handing a request back (`pending`) and denying it work as ever.
+
+#### The job starter
+
+Added 26 Nov 2026 (backend API 105), behind the `multiMacJobs` experiment,
+off by default. Only the main Mac's runner (the owner key) runs it, and
+only with the experiment on; a runner on a runner key does nothing.
+It is how a job request starts without a card (`runner/src/job-starter.ts`).
+
+- `relay:pendingJobRequests` (owner only) lists the requests that are
+  `pending` and have a `job`, oldest first, at most 20: for each its
+  `docId`, `requestId`, `runnerId`, `runnerName` (the asking Mac's), `threadId`,
+  `job`, `params`, `target` and `createdAt`. A request with no `job` is
+  never in it.
+- `relay:decideRequest` takes `jobStart` (boolean). With `claimed` or
+  `allowed` on a row with `job`, the owner key may pass `jobStart: true`;
+  without it that is refused as above, so a runner that never sends it
+  (every release before the starter) can't start a job request. `jobStart`
+  on a row with no `job` is refused (`badArgs`), whatever the state asked
+  for. With `jobStart` and `allowed`, the `result.runnerId` must be the
+  job's own `target`, or it is refused. A runner key can't call
+  `decideRequest` at all.
+- The starter polls `pendingJobRequests` every 15 seconds. For each
+  request, one at a time, it reads the job (`jobsList`, by the request's
+  `job`) and resolves the job's `target` strictly as a runner id among the
+  runners the owner key can see: never by name, never to "this Mac" unless
+  that is the id. A job that is gone, or a `target` that isn't a known
+  runner's id (a renamed or rebuilt Mac, or one never seen), denies the
+  request with the reason. An offline target is left pending, to be tried
+  at the next poll, and denied once it has waited 10 minutes.
+- It claims (`decideRequest` `claimed` with `jobStart`), fills the brief
+  by replacing each `{param}` with the request's value once (a value is
+  never searched again for placeholders), and starts a thread on the
+  target with that text, the job's `mode` as its permission mode (never
+  left out), no folder (the target's default), and no title, model or
+  effort. If the target is the main Mac itself it starts it here, as the
+  card path's create does. Then it marks the request `allowed` with
+  `jobStart` and where it started. It never leaves a request `claimed`: a
+  start that fails hands the claim back and denies the request with the
+  reason, and if the target didn't answer (so the thread may exist) it does
+  the same with a reason that says it may have started, so the asking
+  thread is told and nothing is ever started a second time. A request
+  already claimed, allowed or denied is never started again, and the
+  starter never starts a request id twice.
+- The new thread's first line is the job header, not the card path's:
+  `[Started by the job "<name>" for thread <id> on <Mac>, under the owner's
+  job rule: no person read or allowed this request. The brief below is the
+  job's, with that thread's values filled in. To report back,
+  send_message to thread <id>.]`. It never says the user allowed it.
+- A request with no `job` is never started by the starter; it keeps the
+  card.
 
 ## Sharing
 

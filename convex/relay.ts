@@ -9,7 +9,7 @@
 // Read rules (docs/convex-backend.md, "Read rules"): the live tail is a few rows, older pages
 // are read once and kept on the runner, a thread's row is one document, and
 // a command's state is one get by id.
-import { ConvexError, v } from 'convex/values';
+import { ConvexError, v, type Infer } from 'convex/values';
 import type { OrderedQuery } from 'convex/server';
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import type { DataModel, Doc, Id } from './_generated/dataModel';
@@ -738,19 +738,28 @@ export const decideRequest = mutation({
     // asked again (its first answer was lost) is told yes, and nothing
     // changes; any other claim of a claimed request is refused, as before.
     claim: v.optional(v.string()),
+    // API 105: the job starter's own calls (Jobs, "The job starter"). Only the
+    // owner key can decide a request, and only with this may it claim or allow
+    // one that names a job; a runner that never sends it can't.
+    jobStart: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, { key, requestId, state, docId, result, claim }) => {
+  handler: async (ctx, { key, requestId, state, docId, result, claim, jobStart }) => {
     await runnerAuth(ctx, key, 'decideRequest');
     if (claim !== undefined && !CLAIM.test(claim)) throw new ConvexError({ kind: 'badArgs', message: 'claim must be 8 to 64 letters, digits, - or _' });
     const r = await ctx.db.query('runnerRequests').withIndex('by_requestId', (q) => q.eq('requestId', requestId)).first();
     if (!r || String(r._id) !== docId) throw new ConvexError({ kind: 'notFound', message: 'no such request' });
-    // Until the job starter exists, nothing may start a job request: the
-    // previous runner release's card path ignores `job` and would start an
-    // empty thread with no permission mode (Full access). It claims before
-    // it creates anything, so the claim is where this refuses. Handing back
-    // and denying stay open.
-    if (r.job !== undefined && (state === 'claimed' || state === 'allowed')) throw new ConvexError({ kind: 'badArgs', message: 'a job request is started by the job starter, not from a card' });
+    // Nothing but the job starter may start a job request: the previous runner
+    // release's card path ignores `job` and would start an empty thread with
+    // no permission mode (Full access). It claims before it creates anything,
+    // so the claim is where this refuses; it never sends `jobStart`. Handing
+    // back and denying stay open.
+    if (jobStart && r.job === undefined) throw new ConvexError({ kind: 'badArgs', message: 'jobStart is for a request that names a job' });
+    if (r.job !== undefined && (state === 'claimed' || state === 'allowed')) {
+      if (!jobStart) throw new ConvexError({ kind: 'badArgs', message: 'a job request is started by the job starter, not from a card' });
+      // Where it started is the job's own target, whatever the starter says.
+      if (state === 'allowed' && result?.runnerId !== r.target) throw new ConvexError({ kind: 'badArgs', message: "a job request starts at the job's own target" });
+    }
     if (steppingFor('requestState')) return await decideAsBefore(ctx, r, state, result, claim);
     if (state === 'allowed' && !result && r.state === 'claimed') throw new ConvexError({ kind: 'badArgs', message: 'an allowed request says where it started' });
     const type = EVENTS[state];
@@ -760,6 +769,37 @@ export const decideRequest = mutation({
     const r2 = await requestMachine.send(ctx, r._id, event);
     if (r2.status !== 'done') throw new ConvexError({ kind: 'badArgs', message: `that request is ${r.state}` });
     return null;
+  },
+});
+
+/** What the job starter reads of a pending job request. */
+const jobRequestOut = v.object({
+  docId: v.string(),
+  requestId: v.string(),
+  runnerId: v.string(),
+  runnerName: v.string(),
+  threadId: v.string(),
+  job: v.string(),
+  params: v.record(v.string(), v.string()),
+  target: v.string(),
+  createdAt: v.number(),
+});
+const JOB_REQUESTS_MAX = 20;
+// The pending rows read to find them: a pending free-text request is at most 5 a runner.
+const JOB_REQUESTS_READ = 100;
+
+/** The pending requests that name a job, oldest first, for the main Mac's job starter (owner only). */
+export const pendingJobRequests = query({
+  args: { key: v.string() },
+  returns: v.array(jobRequestOut),
+  handler: async (ctx, { key }) => {
+    await runnerAuth(ctx, key, 'pendingJobRequests');
+    const pending = await ctx.db.query('runnerRequests').withIndex('by_request_state', (q) => q.eq('requestState.kind', 'pending')).take(JOB_REQUESTS_READ);
+    const out: Infer<typeof jobRequestOut>[] = [];
+    for (const r of pending.filter((x) => x.job !== undefined).sort((a, b) => a.createdAt - b.createdAt).slice(0, JOB_REQUESTS_MAX)) {
+      out.push({ docId: String(r._id), requestId: r.requestId, runnerId: r.runnerId, runnerName: await runnerNameOf(ctx, r.runnerId), threadId: r.threadId, job: r.job!, params: r.params ?? {}, target: r.target, createdAt: r.createdAt });
+    }
+    return out;
   },
 });
 
