@@ -799,9 +799,10 @@ const JOB_CLAIM_STALE_MS = 10 * 60_000;
 const JOB_REQUESTS_READ = 100;
 
 /**
- * The pending requests that name a job, oldest first, for the main Mac's job starter (owner only).
+ * The pending requests that name a job, for the main Mac's job starter (owner only).
+ * The 100 read come in job-name order (the index's), and are sorted oldest first after reading; the first 20 are returned.
  * With them, a claimed one left more than 10 minutes: a starter that stopped
- * between its claim and its answer, which the next one hands back and denies.
+ * between its claim and its answer, which the next one denies straight from claimed.
  */
 export const pendingJobRequests = query({
   args: { key: v.string() },
