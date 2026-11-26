@@ -65,6 +65,7 @@ export async function jobCommand(cfg: Pick<Config, 'home' | 'sync'>, args: strin
     if (sub === 'remove') {
       const name = rest[0]?.trim();
       if (!name || rest.length !== 1) return fail(USAGE);
+      // Reads the list, then replaces it whole: a set landing in between is overwritten (the main Mac is the only writer).
       const jobs = await stored(post, key);
       const kept = jobs.filter((j) => j.name !== name);
       if (kept.length === jobs.length) return fail(`There is no job named ${clean(name, 60)} (tb job list shows them).`);

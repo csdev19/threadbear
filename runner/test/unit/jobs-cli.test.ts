@@ -85,13 +85,14 @@ test('set sends exactly the parsed array', async () => {
   assert.match(t.printed.join('\n'), /2 jobs/);
 });
 
-test('set refuses a file that is not JSON, not an array, missing or unnamed, with no call', async () => {
+test('set refuses a file that is not JSON, not an array, missing, with no call', async () => {
   const t = setup();
   assert.equal(await t.run(['set', t.file('{not json')]), 1);
   assert.match(t.failed.join('\n'), /isn't valid JSON/);
   assert.equal(await t.run(['set', t.file(JSON.stringify(JOB))]), 1);
   assert.match(t.failed.join('\n'), /array/);
   assert.equal(await t.run(['set', path.join(tmpDir(), 'none.json')]), 1);
+  assert.match(t.failed.join('\n'), /Couldn't read/);
   assert.equal(await t.run(['set']), 1);
   assert.match(t.failed.join('\n'), /replaces the whole list/);
   assert.equal(t.calls.length, 0);
