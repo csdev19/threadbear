@@ -26,7 +26,7 @@ type ConvexCli = (args: string[], input?: string) => Run;
 // no way to ask, see listDeployKeys). host: this Mac's short name.
 type DeployKey = { name: string; creationTime: number; lastUsedTime?: number | null };
 export type RunnerKeyDeps = { post?: Post; ssh?: Ssh; convex?: ConvexCli; userHome?: string; heads?: () => Promise<{ threadId: string; lastSeq: number }[]>; deployKeys?: () => Promise<DeployKey[] | undefined>; host?: string; print?: (s: string) => void; fail?: (s: string) => void; now?: () => number };
-type Flags = { ssh?: string; out?: string; id?: string; json?: boolean; finish?: boolean; replace?: boolean; remove?: string[]; snapshot?: string; keysChecked?: boolean; purge?: boolean; lockOut?: string[] };
+type Flags = { ssh?: string; out?: string; id?: string; json?: boolean; finish?: boolean; replace?: boolean; remove?: string[]; snapshot?: string; keysChecked?: boolean; purge?: boolean; lockOut?: string[]; readOthers?: boolean };
 
 // Anything another Mac or a runner key wrote, as printed here: no control
 // characters or escape sequences (which could rewrite the terminal), no
@@ -286,7 +286,7 @@ export async function runnerKeysCommand(cfg: Pick<Config, 'home' | 'sync'>, args
       if (f.json) return print(JSON.stringify({ keys: rows, rotating }, null, 2)), 0;
       if (rotating) print(ROTATING);
       if (!rows.length) return print('No runner keys: every runner on this deployment uses the main key. tb runner add <name> --ssh <host> makes one for another Mac.'), 0;
-      for (const r of rows) print(`${r.revokedAt ? 'revoked' : 'live   '}  ${clean(r.runnerId, 64)}  ${clean(r.name, 60)}  made ${clean(r.createdAt, 30)}${r.revokedAt ? `, revoked ${clean(r.revokedAt, 30)}` : ''}`);
+      for (const r of rows) print(`${r.revokedAt ? 'revoked' : 'live   '}  ${clean(r.runnerId, 64)}  ${clean(r.name, 60)}  made ${clean(r.createdAt, 30)}${r.revokedAt ? `, revoked ${clean(r.revokedAt, 30)}` : ''}${r.reads ? ', reads' : ''}`);
       return 0;
     }
     if (sub === 'check') return check(cfg, key, f, deps.ssh ?? realSsh, print, fail, deps.userHome ?? os.homedir(), url);
@@ -314,9 +314,16 @@ export async function runnerKeysCommand(cfg: Pick<Config, 'home' | 'sync'>, args
     // Another Mac can't reach a backend on this Mac's 127.0.0.1, whatever key it has.
     if (sub === 'add' && localOnly(url)) return fail(`This Mac's backend is on this Mac only (${url}, from setup --self-hosted --local), so another Mac can't reach it. To add one, move it somewhere the other Mac can reach first: ./threadbear setup --self-hosted --tailnet, or --self-hosted --url and --site-url (docs/self-hosting.md).`);
     if (sub === 'add') return await add(rest[0], f, call, deps.ssh ?? realSsh, print, fail, url, cfg.sync.runnerId, cfg.sync.site);
+    if (sub === 'reads') {
+      const [id, mode] = [rest[0]?.trim(), rest[1]?.trim()];
+      if (!id || !validRunnerId(id) || (mode !== 'on' && mode !== 'off') || rest.length > 2) return fail('tb runner reads <runnerId> on|off: whether that runner key may read the other Macs\' thread list, messages and pictures (tb runner list shows them).');
+      const n = (await call('mutation', 'sync:setRunnerReads', { runnerId: id, reads: mode === 'on' })) as number;
+      print(n ? (mode === 'on' ? `Runner ${id} can read the other Macs' thread list, messages and pictures now (never write).` : `Runner ${id} can't read the other Macs' threads now.`) : `Runner ${id} has no live key.`);
+      return 0;
+    }
     if (sub === 'logins') return await logins(rest, f, call, print, fail);
     // After a rotation, what the old key could have left (auditCommand).
-    return fail('tb runner add <name> --ssh <host> | --out <file> [--id <runnerId>], tb runner list, tb runner logins [<runnerId> <provider:email>... | none], tb runner revoke <runnerId>, tb runner check [--ssh <host>], or tb runner rotate-owner [--finish].');
+    return fail('tb runner add <name> --ssh <host> | --out <file> [--id <runnerId>], tb runner list, tb runner reads <runnerId> on|off, tb runner logins [<runnerId> <provider:email>... | none], tb runner revoke <runnerId>, tb runner check [--ssh <host>], or tb runner rotate-owner [--finish].');
   } catch (e) {
     return fail((e as Error).message);
   }
@@ -381,7 +388,7 @@ async function add(name: string | undefined, f: Flags, call: (kind: 'query' | 'm
     const seen = known.lastSeenAt ? `last seen ${new Date(known.lastSeenAt).toISOString()}` : 'never seen';
     return fail(`Runner ${runnerId} is already on this deployment: ${known.name ? `"${clean(known.name, 60)}", ` : ''}${seen}${known.keyed ? ', with a key of its own' : ''}. If ${f.ssh ? clean(f.ssh, 80) : 'that Mac'} really is that runner (its threads are under that id), run the same command again with --id ${runnerId} --replace.`);
   }
-  const made = (await call('mutation', 'sync:addRunnerKey', { runnerId, name: name.trim(), ownerRunnerId: ownId, replace: Boolean(known) })) as { runnerId: string; key: string };
+  const made = (await call('mutation', 'sync:addRunnerKey', { runnerId, name: name.trim(), ownerRunnerId: ownId, replace: Boolean(known), ...(f.readOthers ? { reads: true } : {}) })) as { runnerId: string; key: string };
   if (f.out) {
     const file = path.resolve(f.out);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -453,7 +460,7 @@ async function logins(rest: string[], f: Flags, call: (kind: 'query' | 'mutation
 const ROTATING = 'RUNNER_KEY_NEXT is set on the deployment, so two main keys work. Finish rotating with tb runner rotate-owner --finish (after restarting this runner on the new key).';
 
 async function listKeys(call: (kind: 'query' | 'mutation', fn: string, a: Record<string, unknown>) => Promise<unknown>) {
-  const r = (await call('query', 'sync:listRunnerKeys', {})) as { keys?: { runnerId: string; name: string; createdAt: string; revokedAt?: string }[]; rotating?: boolean } | null;
+  const r = (await call('query', 'sync:listRunnerKeys', {})) as { keys?: { runnerId: string; name: string; createdAt: string; revokedAt?: string; reads?: boolean }[]; rotating?: boolean } | null;
   return { keys: r?.keys ?? [], rotating: Boolean(r?.rotating) };
 }
 
