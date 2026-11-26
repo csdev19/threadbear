@@ -595,7 +595,7 @@ only with the experiment on; a runner on a runner key does nothing.
 It is how a job request starts without a card (`runner/src/job-starter.ts`).
 
 - `relay:pendingJobRequests` (owner only) lists the requests that are
-  `pending` and have a `job`, oldest first, at most 20: for each its
+  `pending` and have a `job`, oldest first, at most 20, read from an index of job rows only (old free-text requests never crowd them out): for each its
   `docId`, `requestId`, `runnerId`, `runnerName` (the asking Mac's), `threadId`,
   `job`, `params`, `target`, `createdAt` and `state` (`pending`, or
   `claimed`). A request with no `job` is never in it. A `claimed` one is in
