@@ -1495,7 +1495,8 @@ are in docs/protocol/runners.md, "Jobs". A Mac with a runner key can't
 write jobs: `tb job` there says to run it on this one. With the `multiMacJobs` experiment on
 (Settings > General > Experiments, on the main Mac; off by default), a request from another Mac for
 one of your jobs, with values that fit, starts by itself within about 15
-seconds on the Mac the job names. The thread it starts says on its first
+seconds on the Mac the job names, when that Mac is online and the backend is reachable. If the
+Mac is offline, the request waits up to ten minutes and is then turned down, with the reason. The thread it starts says on its first
 line that no person read the request. A request for a job whose Mac this
 one doesn't know is turned down with the reason, never started here, and
 so is one that waited more than an hour. When that thread's first turn
@@ -1518,8 +1519,13 @@ less than a full Mac. Check these once, and again after a change:
   <the mini>` on this Mac looks, and says what to revoke and remove.
 - Its GitHub token is a fine-grained one limited to the job repos, with no
   workflow scope.
-- Each of those repos has branch protection on its default branch, so what
-  the mini pushes is reviewed before anything builds from it.
+- Each of those repos has branch protection with required review on its default
+  branch, so what the mini pushes can't reach that branch before someone reviews it
+  (before merging).
+- Workflows that run on `pull_request`, or on `push` for other branches, run the mini's
+  code in CI before any review. Keep secrets out of those workflows. GitHub's "Require
+  approval for workflows" setting covers only forks, so for a branch in the same repo the
+  safe move is no secrets in workflows that a pull request or a branch push can trigger.
 
 To start a thread on another Mac, pick it with the machine chip on the composer: the
 folder, account and model are then that Mac's. New threads start on the
