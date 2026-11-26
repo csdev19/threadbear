@@ -407,6 +407,33 @@ test('a started job request can be handed back and denied, as any other claim', 
   assert.equal(rowOf(s, a.requestId).state, 'denied');
 });
 
+test('a claimed job request is denied straight from claimed with jobStart; without jobStart, and for a request with no job, it is refused', async () => {
+  const s = await setup();
+  await s.publish(job({ perHour: 60 }));
+  await s.ask('capture-evidence', good);
+  await s.ask('capture-evidence', { ...good, pr: '43' });
+  await call(s.ctx, relay.fileRequest, { key: LAPTOP_KEY, requestId: 'req-plain-0001', threadId: 'L', target: 'main', request: { text: 'start one' } });
+  const [a, b, plain] = ['req-job-0001', 'req-job-0002', 'req-plain-0001'].map((id) => rowOf(s, id));
+  await decide(s, a, 'claimed', { ...claimArgs, jobStart: true });
+  await decide(s, b, 'claimed', { ...claimArgs, jobStart: true });
+  // Without jobStart a claimed job row stays claimed.
+  assert.equal(await outcome(decide(s, a, 'denied')), 'badArgs');
+  assert.equal(rowOf(s, a.requestId).state, 'claimed');
+  assert.equal(await outcome(decide(s, a, 'denied', { jobStart: true })), 'ok');
+  assert.equal(rowOf(s, a.requestId).state, 'denied');
+  // A denied row is final.
+  assert.equal(await outcome(decide(s, a, 'denied', { jobStart: true })), 'badArgs');
+  // A pending job row is still denied as before, with or without jobStart.
+  assert.equal(await outcome(decide(s, b, 'pending')), 'ok');
+  assert.equal(await outcome(decide(s, b, 'denied')), 'ok');
+  // A request with no job: jobStart is refused, and a claimed one can't be denied.
+  assert.equal(rowOf(s, plain.requestId).job, undefined);
+  assert.equal(await outcome(decide(s, plain, 'claimed', claimArgs)), 'ok');
+  assert.equal(await outcome(decide(s, plain, 'denied', { jobStart: true })), 'badArgs');
+  assert.equal(await outcome(decide(s, plain, 'denied')), 'badArgs');
+  assert.equal(rowOf(s, plain.requestId).state, 'claimed');
+});
+
 test('pendingJobRequests also returns a claimed job request left more than 10 minutes, with state claimed', async () => {
   const s = await setup();
   await s.publish(job({ perHour: 60 }));

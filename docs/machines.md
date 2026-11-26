@@ -275,6 +275,7 @@ anyone started it.
   claimed --> claimed : CLAIM(claim?) (owner) [sameClaim]
   claimed --> allowed : ALLOW(result) (owner) / allow
   claimed --> pending : HAND_BACK (owner) / handBack
+  claimed --> denied : DENY (owner) / deny
   allowed --> [*]
   denied --> [*]
   closed --> [*]
@@ -295,6 +296,7 @@ From `claimed`:
 - `CLAIM(claim?) (owner)` [sameClaim] stays put. The same claim asking again after its answer was lost: told yes, and nothing changes.
 - `ALLOW(result) (owner)` → `allowed`. The thread started: the request says where.
 - `HAND_BACK (owner)` → `pending`. Starting it failed on the main Mac: it waits for Mike again, and the next claim is a new one.
+- `DENY (owner)` → `denied`. A job request the job starter can't finish (the start may or may not have happened): denied at once, never handed back first, so a crash between the two can't start it twice. Only for a request that names a job, from the job starter's own call (relay.ts decideRequest checks both).
 
 ## clear
 

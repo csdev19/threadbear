@@ -37,7 +37,7 @@ function jobRequest(over: Partial<JobRequestRow> = {}): JobRequestRow {
   return { docId: `doc${n}`, requestId: `req-job-${String(n).padStart(4, '0')}`, runnerId: LAPTOP, runnerName: 'laptop', threadId: 'L-thread', job: 'capture-evidence', params: { repo: 'csdev19/threadbear', branch: 'feature/fix-login', pr: '42' }, target: MINI, createdAt: 1000, ...over };
 }
 
-type Opts = { enabled?: boolean; owner?: boolean; ready?: boolean; jobs?: JobRow[]; runners?: RunnerRef[]; failThere?: unknown; failHere?: unknown; failAllow?: number; failClaim?: number; failRelease?: number; now?: number };
+type Opts = { enabled?: boolean; owner?: boolean; ready?: boolean; jobs?: JobRow[]; runners?: RunnerRef[]; failThere?: unknown; failHere?: unknown; failAllow?: number; failClaim?: number; failDeny?: number; now?: number };
 
 function fake(rows: JobRequestRow[], opts: Opts = {}) {
   const log: string[] = [];
@@ -45,7 +45,7 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
   const created: { where: string; p: { text: string; permissionMode?: string; cwd?: string; title?: string; model?: string; effort?: string } }[] = [];
   let failAllow = opts.failAllow ?? 0;
   let failClaim = opts.failClaim ?? 0;
-  let failRelease = opts.failRelease ?? 0;
+  let failDeny = opts.failDeny ?? 0;
   const refused = (m: string) => Object.assign(new Error(m), { data: { kind: 'badArgs' } });
   const deps: JobStarterDeps = {
     enabled: () => opts.enabled ?? true,
@@ -82,14 +82,15 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
               }
               if (p.state === 'pending') {
                 if (s.state !== 'claimed') throw refused(`that request is ${s.state}`);
-                if (failRelease > 0) {
-                  failRelease--;
-                  throw new Error('fetch failed');
-                }
                 s.state = 'pending';
                 return;
               }
-              if (s.state !== 'pending') throw refused(`that request is ${s.state}`);
+              // A claimed job row is denied straight from claimed, with jobStart only.
+              if (!(s.state === 'pending' || (s.state === 'claimed' && p.jobStart))) throw refused(`that request is ${s.state}`);
+              if (failDeny > 0) {
+                failDeny--;
+                throw new Error('fetch failed');
+              }
               s.state = 'denied';
             },
           }
@@ -305,13 +306,13 @@ test('not the main Mac (no owner key), or a backend before API 105: it does noth
   }
 });
 
-test('a start that fails before anything is made hands the claim back and denies with the reason: never left claimed', async () => {
+test('a start that fails before anything is made denies it from claimed with the reason: never left claimed', async () => {
   const req = jobRequest();
   const f = fake([req], { failThere: notSent(new Error('the mini is not reachable')) });
   await f.starter.tick();
   assert.equal(f.created.length, 0);
   assert.equal(f.state.get(req.requestId)!.state, 'denied');
-  assert.deepEqual(f.log.filter((l) => l.startsWith('decide')), [`decide ${req.requestId} claimed jobStart`, `decide ${req.requestId} pending`, `decide ${req.requestId} denied`]);
+  assert.deepEqual(f.log.filter((l) => l.startsWith('decide')), [`decide ${req.requestId} claimed jobStart`, `decide ${req.requestId} denied jobStart`]);
   assert.match(f.log.join('\n'), /respond L-thread req-job-\d+ deny .*not reachable/);
 });
 
@@ -321,6 +322,8 @@ test('a start the target never answered (it may exist) is denied too, with a rea
   await f.starter.tick();
   assert.equal(f.state.get(req.requestId)!.state, 'denied');
   assert.match(f.log.join('\n'), /deny .*may have started/);
+  // One decide, straight from claimed: never handed back to pending first, where a crash would let the next tick start it again.
+  assert.deepEqual(f.log.filter((l) => l.startsWith('decide')), [`decide ${req.requestId} claimed jobStart`, `decide ${req.requestId} denied jobStart`]);
   await f.starter.tick();
   assert.equal(f.created.length, 0);
 });
@@ -356,9 +359,9 @@ test('an allowed whose answer was lost is asked again next tick, and the thread 
   assert.equal(f.state.get(req.requestId)!.state, 'allowed');
 });
 
-test('a hand-back whose answer was lost is asked again next tick, then denied', async () => {
+test('a deny whose answer was lost is asked again next tick, from claimed, and nothing is ever started', async () => {
   const req = jobRequest();
-  const f = fake([req], { failThere: notSent(new Error('down')), failRelease: 1 });
+  const f = fake([req], { failThere: notSent(new Error('down')), failDeny: 1 });
   await f.starter.tick();
   assert.equal(f.state.get(req.requestId)!.state, 'claimed');
   await f.starter.tick();
@@ -393,14 +396,14 @@ test('one request failing does not stop the next', async () => {
   assert.equal(f.state.get(good.requestId)!.state, 'allowed');
 });
 
-test('a claimed request this runner lost is handed back, then denied with a may-have-started reason, and never started', async () => {
+test('a claimed request this runner lost is denied straight from claimed with a may-have-started reason, and never started', async () => {
   const req = jobRequest();
   const f = fake([req]);
   // A claim left by a runner that stopped: nothing of it is in this one's memory.
   f.state.get(req.requestId)!.state = 'claimed';
   await f.starter.tick();
   assert.equal(f.created.length, 0);
-  assert.deepEqual(f.log.filter((l) => l.startsWith('decide')), [`decide ${req.requestId} pending`, `decide ${req.requestId} denied`]);
+  assert.deepEqual(f.log.filter((l) => l.startsWith('decide')), [`decide ${req.requestId} denied jobStart`]);
   assert.equal(f.state.get(req.requestId)!.state, 'denied');
   assert.ok(f.log.some((l) => l.startsWith(`respond L-thread ${req.requestId} deny The main Mac stopped while starting the job "capture-evidence". It may have started on its target: look there before asking again.`)), f.log.join('\n'));
 });
