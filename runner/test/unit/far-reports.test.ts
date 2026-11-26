@@ -534,7 +534,7 @@ test('a job reply whose first try failed after the command was queued is retried
   f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
   // Never queued (the Mac is offline): a plain retry.
   f.s.failThere = true;
-  f.s.failWith = notSent(new Error('offline'));
+  f.s.failWith = notSent(new Error('offline')) as Error;
   await f.tick(fr);
   await f.tick(fr);
   f.s.failThere = false;
@@ -617,4 +617,15 @@ test("a job reply goes to the asking thread's runner as the backend has it now, 
   await h.tick(hr);
   await h.tick(hr);
   assert.equal(h.there[0]!.runnerId, 'laptop');
+});
+
+test("a job turn whose last words are followed by an end_turn row is not held for the settle time", async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', [...turn(1, ['All checked.']), { seq: 150, role: 'tool', text: 'threadbear: end_turn', toolKind: 'mcp', turn: 't1' }]);
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1, 'sent after the second look, not after two minutes');
+  assert.match(f.there[0]!.text, /\n\nAll checked\.$/);
 });

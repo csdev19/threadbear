@@ -685,6 +685,9 @@ other runner of a handover passed it on while this one was reading.
   the job thread ran branch code and read PR text, and the asking thread must
   not obey it. Names and ids in the line are cut to their own characters.
   A reply over 20,000 characters is cut, with where to read the rest.
+- The reply is held at the asking thread's access when it arrives, not at
+  the access it had when it filed the request: carrying that would need a
+  protocol change, which is out of scope. The watch carries no `by`.
 - Only threads the starter started are watched this way, and only with the
   experiment on; with it off the watch waits, untouched, on disk.
 - The watch is in `far-reports.json`, so a restart of the main Mac keeps a

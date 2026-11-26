@@ -172,7 +172,10 @@ export function replyOf(rows: FarRow[], turn: string): string {
 // Whether a turn's last row is the assistant's words, not a tool call: a
 // turn that ended is complete only once its last reply has reached the backend.
 function endsOnWords(rows: FarRow[], turn: string): boolean {
-  const last = rows.filter((r) => r.turn === turn).sort((a, b) => a.seq - b.seq).at(-1);
+  // Past the MCP tool calls after the words (end_turn's, a pin), as replyOf is.
+  const mine = rows.filter((r) => r.turn === turn).sort((a, b) => a.seq - b.seq);
+  while (mine.length && mine[mine.length - 1]!.role === 'tool' && mine[mine.length - 1]!.toolKind === 'mcp') mine.pop();
+  const last = mine.at(-1);
   return last?.role === 'assistant' && last.text.trim() !== '';
 }
 
@@ -218,7 +221,7 @@ export class FarReports {
     }
   }
 
-  add(p: { threadId: string; runnerId?: string; runnerName: string; starter: string; by: PermissionMode; job?: string; askerRunnerId?: string }): boolean {
+  add(p: { threadId: string; runnerId?: string; runnerName: string; starter: string; by?: PermissionMode; job?: string; askerRunnerId?: string }): boolean {
     // A thread already watched keeps its starter: another runner naming one
     // of its threads as new again can't send its replies elsewhere.
     if (this.read().has(p.threadId)) return true;
