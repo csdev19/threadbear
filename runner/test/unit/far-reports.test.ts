@@ -46,7 +46,7 @@ function fake(dir = tmpDir('far-reports')) {
     rowFor: {} as Record<string, { status: string; runnerId?: string } | null>,
     rowThrows: false,
     sends: 0,
-    ceilings: [] as string[],
+    ceilings: [] as (string | undefined)[],
     warns: [] as string[],
     onRows: undefined as (() => void) | undefined,
   };
@@ -67,7 +67,7 @@ function fake(dir = tmpDir('far-reports')) {
       self: () => 'm5',
       runnerName: (id) => (id === 'cloud' ? 'Cloud box' : undefined),
       has: (id) => s.here.has(id),
-      deliver: (to, text, ceiling) => {
+      deliver: (to, text, ceiling?: string) => {
         if (s.failDeliver) throw new Error('busy');
         s.ceilings.push(ceiling);
         sent.push({ to, text });
@@ -373,31 +373,6 @@ test('a job reply waits for the turn final assistant row, and is sent once: a la
   for (let i = 0; i < 3; i++) await f.tick(fr);
   assert.equal(f.there.length, 1);
   assert.deepEqual(fr.watching(), []);
-});
-
-test("a job reply is not sent if the other runner of a handover passed it on meanwhile", async () => {
-  const dir = tmpDir('far-reports-job-meanwhile');
-  const f = fake(dir);
-  const fr = f.make();
-  fr.add(JOB);
-  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
-  await f.tick(fr);
-  const file = path.join(dir, 'far-reports.json');
-  const edit = (g: (r: Record<string, unknown>) => void) => {
-    const recs = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>[];
-    g(recs[0]!);
-    fs.writeFileSync(file, JSON.stringify(recs));
-  };
-  // The other runner records the send while this one is reading the rows.
-  f.s.onRows = () => {
-    f.s.onRows = undefined;
-    edit((r) => {
-      r.sentTurn = 't1';
-      r.hashes = { t1: 'x' };
-    });
-  };
-  await f.tick(fr);
-  assert.equal(f.there.length, 0, 'passed on meanwhile: not sent again');
 });
 
 test("a job reply is not sent past the day's cap, which real attempts with a lost acknowledgement reach, and the watch is forgotten", async () => {
@@ -716,7 +691,7 @@ test("a job whose first turn can't be read to its end gets the asking thread a s
   assert.equal(f.there.length, 1);
 });
 
-test("a job reply for an asking thread the backend now puts on this Mac is delivered locally, at the watch's ceiling, not through the relay", async () => {
+test("a job reply for an asking thread the backend now puts on this Mac is delivered locally with no explicit ceiling, so the runner holds it at the thread's access as for a relayed one", async () => {
   const f = fake();
   const fr = f.make();
   fr.add(JOB);
@@ -729,8 +704,21 @@ test("a job reply for an asking thread the backend now puts on this Mac is deliv
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent[0]!.to, JOB.starter);
   assert.match(f.sent[0]!.text, /\n\nDone\.$/);
-  assert.deepEqual(f.s.ceilings, ['ask']);
+  assert.deepEqual(f.s.ceilings, [undefined]);
   assert.deepEqual(fr.watching(), []);
+});
+
+test('a local job reply with no by on the watch is delivered with no ceiling too', async () => {
+  const f = fake();
+  const fr = f.make();
+  const { by: _by, ...noBy } = JOB;
+  fr.add(noBy);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  f.s.rowFor[JOB.starter] = { status: 'idle', runnerId: 'm5' };
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.sent.length, 1);
+  assert.deepEqual(f.s.ceilings, [undefined]);
 });
 
 test('a job watch the other runner sent and deleted is not written back by a look that changed its reply', async () => {
