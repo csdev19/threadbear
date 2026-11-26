@@ -6,6 +6,7 @@ import { isEffortLevel, type Account, type EffortLevel, type ModelChoice } from 
 import type { UsageStore } from './usage.ts';
 import type { Config } from './config.ts';
 import { isDirectory } from './fsutil.ts';
+import { experimentOn } from './experiments.ts';
 
 // What a .claude.json says about its login: oauthAccount's emailAddress,
 // organizationType and billingType. Tokens live in the Keychain and are never read; this
@@ -104,7 +105,7 @@ export function isCodexLogin(dir: string): boolean {
 }
 
 export type DiscoveryConfig = Pick<Config, 'claudeMainDir' | 'claudeMainJson' | 'tokenStatsAccountsDir' | 'userHome' | 'pathEnv'> &
-  Partial<Pick<Config, 'codexMainDir' | 'accountNotes' | 'hiddenLogins' | 'accountsDir' | 'home' | 'cursorPath' | 'opencodePath' | 'grokPath' | 'antigravityPath' | 'claudeMainEmail'>>;
+  Partial<Pick<Config, 'codexMainDir' | 'accountNotes' | 'hiddenLogins' | 'claudeLogins' | 'accountsDir' | 'home' | 'cursorPath' | 'opencodePath' | 'grokPath' | 'antigravityPath' | 'claudeMainEmail'>>;
 
 // claude-main is ~/.claude (its .claude.json sits at ~/.claude.json);
 // codex-main is ~/.codex. Token Stats' Accounts folder holds claude-N and
@@ -139,13 +140,23 @@ export function discoverAccounts(cfg: DiscoveryConfig): Account[] {
   for (const { id, dir } of numbered('claude')) {
     if (isDirectory(dir)) out.push(claudeAccount(id, dir, readLoginProfile(path.join(dir, '.claude.json'))));
   }
+  // Folders runner.json names (claudeLogins experiment), used as written. A
+  // missing one is skipped and shows up on a later rescan.
+  // An id or folder another login already has (an ACP agent's id included) loses.
+  const acp = acpAccounts({ home: cfg.userHome, pathEnv: cfg.pathEnv, paths: { cursor: cfg.cursorPath, opencode: cfg.opencodePath, grok: cfg.grokPath, antigravity: cfg.antigravityPath } });
+  if (cfg.home && cfg.claudeLogins?.length && experimentOn(cfg.home, 'claudeLogins')) {
+    for (const { id, dir } of cfg.claudeLogins) {
+      if (!isDirectory(dir) || out.some((a) => a.id === id || path.resolve(a.configDir) === path.resolve(dir)) || acp.some((a) => a.id === id)) continue;
+      out.push(claudeAccount(id, dir, readLoginProfile(path.join(dir, '.claude.json'))));
+    }
+  }
   const codex = cfg.codexMainDir ? [{ id: 'codex-main', dir: cfg.codexMainDir }] : [];
   for (const { id, dir } of [...codex, ...numbered('codex')]) {
     if (isCodexLogin(dir)) out.push(codexAccount(id, dir));
   }
-  out.push(...acpAccounts({ home: cfg.userHome, pathEnv: cfg.pathEnv, paths: { cursor: cfg.cursorPath, opencode: cfg.opencodePath, grok: cfg.grokPath, antigravity: cfg.antigravityPath } }));
+  out.push(...acp);
   for (const a of out) {
-    const note = cfg.accountNotes?.[a.id];
+    const note = cfg.accountNotes && Object.hasOwn(cfg.accountNotes, a.id) ? cfg.accountNotes[a.id] : undefined;
     if (note) a.note = note;
   }
   const hidden = new Set(cfg.hiddenLogins ?? []);

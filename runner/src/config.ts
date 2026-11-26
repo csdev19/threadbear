@@ -123,6 +123,10 @@ export type Config = {
   // the only way to drop it once its plan has lapsed, rather than have its
   // Usage row (and its sign-in warning dot) sit there for good.
   hiddenLogins?: string[];
+  // Existing CLAUDE_CONFIG_DIR folders registered as Claude logins (runner.json
+  // claudeLogins, behind the claudeLogins experiment). `dir` is kept exactly
+  // as written, tilde expanded: Claude Code's Keychain item is named from it.
+  claudeLogins?: { id: string; dir: string }[];
   poolFolders?: Record<string, string[]>;
   // The folders runner.json's `sandbox` named, from the sandboxed-threads
   // experiment Threadbear no longer has (taken out 16 Nov 2026). A thread
@@ -223,6 +227,7 @@ export type RunnerJson = {
   cliUpdates?: Partial<CliUpdatesConfig>;
   accountNotes?: Record<string, string>;
   hiddenLogins?: string[];
+  claudeLogins?: unknown;
   poolFolders?: Record<string, string[]>;
   sandbox?: unknown;
   pools?: unknown[];
@@ -315,6 +320,44 @@ export function expandHome(p: string, userHome = os.homedir()): string {
   if (p === '~') return userHome;
   if (p.startsWith('~/') || (path.sep === '\\' && p.startsWith('~\\'))) return path.join(userHome, p.slice(2));
   return p;
+}
+
+// runner.json claudeLogins: folders to run Claude in as their own login. The
+// dir is only tilde-expanded, as a string: Claude Code names its macOS
+// Keychain item from a hash of CLAUDE_CONFIG_DIR, so any other change to the
+// string (a trailing slash, normalizing) reads as signed out.
+export function parseClaudeLogins(raw: unknown, userHome: string): { logins: { id: string; dir: string }[]; errors: string[] } {
+  const logins: { id: string; dir: string }[] = [];
+  const errors: string[] = [];
+  if (raw === undefined || raw === null) return { logins, errors };
+  if (!Array.isArray(raw)) return { logins, errors: ['must be a list'] };
+  const seen = new Set<string>();
+  const seenDirs = new Set<string>();
+  for (const entry of raw) {
+    const e = entry as { id?: unknown; dir?: unknown } | null;
+    if (!e || typeof e !== 'object' || Array.isArray(e) || typeof e.dir !== 'string' || e.dir === '') {
+      errors.push(`${JSON.stringify(entry)} needs an object with a "dir" folder`);
+      continue;
+    }
+    const dir = e.dir === '~' ? userHome : e.dir.startsWith('~/') ? userHome + '/' + e.dir.slice(2) : e.dir;
+    const given = typeof e.id === 'string' && e.id !== '' ? e.id : undefined;
+    const id = given ?? path.basename(dir).replace(/^\./, '');
+    const where = `${id} (${dir})`;
+    if (!dir.startsWith('/') && !path.win32.isAbsolute(dir)) errors.push(`${where}: dir must be an absolute path or start with ~/`);
+    else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) errors.push(`${where}: id must be letters, digits, dots, dashes or underscores, starting with a letter or digit`);
+    else if (id === 'claude-main' || id === 'codex-main' || /^(claude|codex)-\d+$/.test(id)) errors.push(`${where}: id clashes with a built-in login, pick another`);
+    else if (seen.has(id)) errors.push(`${where}: id is already used by an earlier entry`);
+    // Compared resolved, so `~/.claude/` is caught too; the dir kept is still the one written.
+    else if (path.resolve(dir) === path.resolve(userHome, '.claude')) errors.push(`${where}: ~/.claude is already claude-main; setting CLAUDE_CONFIG_DIR to it would sign it out, so use claude-main`);
+    else if (path.resolve(dir) === path.resolve(userHome)) errors.push(`${where}: dir is your home folder; Claude would write its config straight into it`);
+    else if (seenDirs.has(path.resolve(dir))) errors.push(`${where}: dir is already listed by an earlier entry`);
+    else {
+      seen.add(id);
+      seenDirs.add(path.resolve(dir));
+      logins.push({ id, dir });
+    }
+  }
+  return { logins, errors };
 }
 
 // Claude Code's native install (~/.local/bin/claude) first, then a claude on
@@ -529,6 +572,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     ...((h) => (h.length ? { hiddenLogins: h } : {}))(
       Array.isArray(json.hiddenLogins) ? json.hiddenLogins.filter((x): x is string => typeof x === 'string' && x !== '') : [],
     ),
+    ...((c) => {
+      for (const e of c.errors) console.warn('runner.json claudeLogins: ' + e);
+      return c.logins.length ? { claudeLogins: c.logins } : {};
+    })(parseClaudeLogins(json.claudeLogins, userHome)),
     poolFolders: folderMap(json.poolFolders) ?? { ...DEFAULT_POOL_FOLDERS },
     ...((f) => (f.length ? { retiredSandboxFolders: f } : {}))(retiredSandboxFolders(json.sandbox, expand)),
     ...(Array.isArray(json.pools) && json.pools.length ? { pools: json.pools } : {}),
