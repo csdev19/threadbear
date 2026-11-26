@@ -136,8 +136,8 @@ test('the job mode is never left out and never Full unless the job says full: ea
   for (const mode of ['ask', 'auto', 'plan', 'full'] as const) {
     const f = fake([jobRequest()], { jobs: [{ ...JOB, mode }] });
     await f.starter.tick();
-    // A plan goes to another Mac as Ask: a runner from before Plan first took a mode it didn't know as Full.
-    assert.equal(f.created[0]!.p.permissionMode, mode === 'plan' ? 'ask' : mode, mode);
+    // A plan goes on as Plan: relay.create sends it so an older runner reads it as Ask (remoteCreateMode).
+    assert.equal(f.created[0]!.p.permissionMode, mode, mode);
   }
   // Started here, a plan stays a plan.
   const f = fake([jobRequest({ target: MAIN })], { jobs: [{ ...JOB, target: MAIN, mode: 'plan' }] });
