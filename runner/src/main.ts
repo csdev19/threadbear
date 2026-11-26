@@ -1468,10 +1468,11 @@ async function main(): Promise<void> {
       if (!src) throw new Error('sync is off');
       return (await src.post('query', 'relay:remoteThread', { key: src.key, threadId })) as { status: string; runnerId?: string; lastActivityAt?: string; title?: string } | null;
     },
-    rows: async (threadId) => {
+    // From the thread's beginning (a job's first turn), or its newest rows.
+    rows: async (threadId, from) => {
       const src = sync.relaySource();
       if (!src) throw new Error('sync is off');
-      return ((await src.post('query', 'relay:remoteMessages', { key: src.key, threadId, limit: FAR_ROWS })) as { messages: FarRow[] }).messages;
+      return ((await src.post('query', 'relay:remoteMessages', { key: src.key, threadId, limit: FAR_ROWS, ...(from === 'start' ? { afterSeq: -1 } : {}) })) as { messages: FarRow[] }).messages;
     },
     self: () => syncRunnerId,
     runnerName: (id) => runnerNames.get(id),

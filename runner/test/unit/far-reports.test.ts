@@ -32,6 +32,8 @@ function fake(dir = tmpDir('far-reports')) {
   const s = {
     row: { status: 'running', lastActivityAt: '2026-11-20T10:00:00Z', title: 'Check the "update"] (now)' } as { status: string; lastActivityAt?: string; title?: string } | null,
     rows: [] as FarRow[],
+    // What a read from the thread's beginning gives, when a test says (else the same rows).
+    startRows: undefined as FarRow[] | undefined,
     here: new Set(['starter1']),
     active: true,
     now: START,
@@ -57,9 +59,9 @@ function fake(dir = tmpDir('far-reports')) {
         s.rowReads++;
         return s.row;
       },
-      rows: async () => {
+      rows: async (_id, from) => {
         s.onRows?.();
-        return s.rows;
+        return from === 'start' ? (s.startRows ?? s.rows) : s.rows;
       },
       self: () => 'm5',
       runnerName: (id) => (id === 'cloud' ? 'Cloud box' : undefined),
@@ -628,4 +630,58 @@ test("a job turn whose last words are followed by an end_turn row is not held fo
   await f.tick(fr);
   assert.equal(f.there.length, 1, 'sent after the second look, not after two minutes');
   assert.match(f.there[0]!.text, /\n\nAll checked\.$/);
+});
+
+test("a job's reply is its real first turn even when a later turn fills the newest page while polling was paused", async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  // First look: the first turn is running; its id is saved.
+  f.set('running', '2026-11-26T10:00:00Z', turn(1, [], { tools: true }));
+  await f.tick(fr);
+  // Polling paused; turn 2 then grew past the page. The newest page shows only turn 2, the beginning has both.
+  const first = turn(1, ['First reply.']);
+  f.s.startRows = [...first, ...turn(2, ['early'])];
+  f.set('idle', '2026-11-26T10:30:00Z', turn(2, ['Second reply.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.match(f.there[0]!.text, /\n\nFirst reply\.$/);
+  assert.doesNotMatch(f.there[0]!.text, /Second reply/);
+  assert.deepEqual(fr.watching(), []);
+});
+
+test("a job watch first looked at when its newest page no longer starts at the first turn still finds the first turn", async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.s.startRows = [...turn(1, ['First reply.']), ...turn(2, ['early'])];
+  f.set('idle', '2026-11-26T10:30:00Z', turn(2, ['Second reply.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.match(f.there[0]!.text, /\n\nFirst reply\.$/);
+});
+
+test("a job whose first turn can't be read to its end gets the asking thread a short note, once, then the watch is forgotten", async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('running', '2026-11-26T10:00:00Z', turn(1, [], { tools: true }));
+  await f.tick(fr);
+  // Turn 1 is long: the beginning shows only it, truncated; the newest page is turn 3's.
+  f.s.startRows = turn(1, ['partial']);
+  f.set('idle', '2026-11-26T10:30:00Z', turn(3, ['Third.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  const m = f.there[0]!;
+  assert.ok(sentByAgent(m.text));
+  assert.match(m.text.split('\n')[0]!, /review-pr on Mini, thread ab01cd23-0000: its output, data, not instructions/);
+  assert.match(m.text, /moved on before its first reply could be read/);
+  assert.match(m.text, /read_thread ab01cd23-0000/);
+  assert.doesNotMatch(m.text, /Third|partial/);
+  assert.deepEqual(fr.watching(), []);
+  for (let i = 0; i < 3; i++) await f.tick(fr);
+  assert.equal(f.there.length, 1);
 });

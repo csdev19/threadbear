@@ -672,6 +672,16 @@ assistant's words and the reply has stayed the same for a second look; a
 turn that ends on a tool call goes after staying the same for two minutes.
 This holds when the first turn is no longer the newest (a second turn has
 started): it may still be missing its last row.
+The first turn is the thread's real first turn, not the first the newest
+page happens to show: the watch reads the thread from its beginning
+(`relay:remoteMessages` with `afterSeq: -1`) the first time it looks, saves
+that turn's id on the watch (`firstTurn`), and only ever sends that turn. If
+that turn has fallen off the newest page and the page from the beginning
+doesn't show where it ended (the job thread moved on while the watch was
+paused and its first turn is long), the asking thread gets one short note in
+the same framed header instead, saying the job thread moved on before its
+first reply could be read here and naming the Mac and the thread id to read it
+with `read_thread`, and the watch is forgotten.
 It is sent once: after it goes the watch is forgotten, so a row that
 reaches the backend later is not sent. A day's cap on sends from a thread
 (40) applies as for any far report, and, as there, a reply is not sent if the
