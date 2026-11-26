@@ -5,6 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.produceState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mikerosoft.threadbear.android.ThreadViewModel
+import com.mikerosoft.threadbear.kit.StartRequest
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -197,6 +203,55 @@ fun ApprovalCard(card: PendingApproval.Approval, tapped: String?, respond: (Appr
                     spinning = tapped == option.wire,
                     enabled = tapped == null,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * A card asking to start a thread on another Mac. Drawn from the filed request
+ * (phone:startRequest), never from the card's title; with no request to show
+ * (an older backend, a failed query) it's the plain approval card as before.
+ */
+@Composable
+fun StartRequestCard(vm: ThreadViewModel, card: PendingApproval.Approval, tapped: String?) {
+    val api by vm.apiVersions.collectAsStateWithLifecycle()
+    val request by produceState<StartRequest?>(null, card.id, api) { value = vm.startRequest(card.id) }
+    val started by vm.startedCards.collectAsStateWithLifecycle()
+    val r = request
+    if (r == null) {
+        ApprovalCard(card, tapped) { vm.respond(card.id, it) }
+        return
+    }
+    val colors = MaterialTheme.colorScheme
+    val signals = LocalSignals.current
+    CardFrame(signals.needsYou) {
+        Text("Start a thread on ${r.target}?", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Asked by ${r.asking} (thread ${r.threadId})", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+        )
+        val details = listOfNotNull(
+            r.cwd?.let { "Folder" to it }, r.permissionMode?.let { "Permission mode" to it }, r.model?.let { "Model" to it }, r.effort?.let { "Effort" to it },
+        )
+        for ((label, value) in details) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(label, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                Text(value, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono))
+            }
+        }
+        // The whole brief: Start it starts with all of it, so it scrolls rather than being cut short.
+        Text(
+            r.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono),
+            modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(10.dp))
+                .background(colors.surfaceContainerHighest).verticalScroll(rememberScrollState()).padding(10.dp),
+        )
+        val done = started[card.id]
+        if (done != null) {
+            Text(done, style = MaterialTheme.typography.titleSmall)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Don't", { vm.respond(card.id, ApprovalOption.DENY) }, Modifier.weight(1f), tint = signals.failed, spinning = tapped == ApprovalOption.DENY.wire, enabled = tapped == null)
+                Pill("Start it", { vm.startNow(card.id, r) }, Modifier.weight(1f), filled = true, spinning = tapped == "start", enabled = tapped == null)
             }
         }
     }

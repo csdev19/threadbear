@@ -7,6 +7,8 @@ import com.mikerosoft.threadbear.kit.ApprovalOption
 import com.mikerosoft.threadbear.kit.AskAnswer
 import com.mikerosoft.threadbear.kit.BackendApi
 import com.mikerosoft.threadbear.kit.PendingApproval
+import com.mikerosoft.threadbear.kit.PendingCommand
+import com.mikerosoft.threadbear.kit.StartRequest
 import com.mikerosoft.threadbear.kit.PhoneBackend
 import com.mikerosoft.threadbear.kit.PhoneThread
 import com.mikerosoft.threadbear.kit.Question
@@ -272,6 +274,40 @@ class ThreadViewModel(private val model: AppModel, val threadId: String) : ViewM
         model.commands.start(CommandKey.Card(cardId), choice, settleMs = 5_000, send = { call(b) }) { state ->
             val failure = state.failure("the runner refused it")
             if (failure != null) model.note("Didn't go through: $failure") else model.said(state, "")
+        }
+    }
+
+    /** The backend's API version as it comes in, for what a card can only do from API 106. */
+    val apiVersions: StateFlow<Int> get() = model.apiVersions
+
+    /** The filed request behind a start card, or null when it can't be started from the phone (an older backend, a failed query): then the card stays as it was. */
+    suspend fun startRequest(approvalId: String): StartRequest? {
+        if (model.apiVersion < BackendApi.START_REQUESTS) return null
+        val b = model.backend.value ?: return null
+        return try {
+            b.startRequest(threadId, approvalId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** What a start card says once its thread started, by approval id: "Started on <Mac>". */
+    val startedCards = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    fun startNow(approvalId: String, request: StartRequest) {
+        val b = model.backend.value ?: return
+        model.commands.start(CommandKey.Card(approvalId), "start", settleMs = 5_000, send = { b.startRequestNow(threadId, approvalId, request.docId) }) { state ->
+            val failure = state.failure("the runner refused it")
+            when {
+                failure != null -> model.note("Didn't go through: $failure")
+                state is PendingCommand.Done -> {
+                    val on = state.result?.started?.let { it.runnerName ?: it.runnerId }
+                    startedCards.update { it + (approvalId to if (on != null) "Started on $on" else "Started") }
+                }
+                else -> model.said(state, "")
+            }
         }
     }
 

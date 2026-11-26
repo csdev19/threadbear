@@ -77,6 +77,7 @@ import com.mikerosoft.threadbear.kit.Hibernate
 import com.mikerosoft.threadbear.kit.LabReviewText
 import com.mikerosoft.threadbear.kit.MessageImage
 import com.mikerosoft.threadbear.kit.PendingApproval
+import com.mikerosoft.threadbear.kit.StartRequest
 import com.mikerosoft.threadbear.kit.PhoneMessage
 import com.mikerosoft.threadbear.kit.PhoneSection
 import com.mikerosoft.threadbear.kit.PhoneThread
@@ -466,6 +467,7 @@ private fun StatusCard(vm: ThreadViewModel, thread: PhoneThread, messages: List<
     val plan = remember(pending, messages) { Plans.plan(pending, messages) }
     when {
         pending is PendingApproval.Approval && plan != null -> PlanApprovalCard(pending, plan, tapped(pending.id)) { vm.respond(pending.id, it) }
+        pending is PendingApproval.Approval && pending.name == StartRequest.CARD_NAME -> StartRequestCard(vm, pending, tapped(pending.id))
         pending is PendingApproval.Approval -> ApprovalCard(pending, tapped(pending.id)) { vm.respond(pending.id, it) }
         pending is PendingApproval.Questions -> QuestionCard(pending, tapped(pending.id)) { chosen, typed -> vm.answer(pending.id, pending.questions, chosen, typed) }
         pending is PendingApproval.Secret -> SecretCard(
