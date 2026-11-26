@@ -220,7 +220,11 @@ the owning runner.
   Macs and which thread here each one's replies go back to (ids, the last
   turn passed on and when, and the most access that thread may have when a
   reply reaches it), read from your Convex backend every 15 seconds
-  while one is busy (every five minutes once it's quiet),
+  while one is busy (every five minutes once it's quiet). It also holds the job
+  threads the job starter started (with the job's name and the asking thread, which is
+  on another Mac): the reply a job thread's first turn ended with is delivered to that
+  thread through the Convex backend, to its Mac's id, and the entry is dropped a few
+  minutes after, or after a day of failed deliveries,
   `schedule-ceilings.json`, for each schedule here that sends to a thread,
   the most access that thread may have when a run reaches it (never sent
   to your backend), and `schedule-ceilings-since`, when this Mac first
@@ -344,7 +348,7 @@ the owning runner.
   allowed or denied with a reason). A request that waited longer than its asking thread waits
   (60 minutes) is denied, never started late. A free-text request is never started this way.
   It does hand each job thread it started to far-reports (`far-reports.json`, above), which sends
-  the thread's first final reply to the asking thread on the other Mac, framed as another
+  the reply the thread's first turn ended with to the asking thread on the other Mac, framed as another
   Mac's output to treat as data; a restart keeps a pending one on disk.
 - **Landing work** (`runner/src/worktrees.ts`): `tb land` keeps an empty
   `threadbear-land.lock` in the repo's common git directory. It runs

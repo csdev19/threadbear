@@ -657,10 +657,16 @@ Added 26 Nov 2026, behind `multiMacJobs`. Once the starter has started a job
 thread it hands it to far-reports (`runner/src/far-reports.ts`), with the
 asking thread and the asking Mac. That watch reads the job thread's rows
 from the backend as it does for any thread the main Mac started on another
-runner, and when a turn of it ends it sends that turn's final reply to the
-asking thread, through the relay (`threads.send`, which follows the thread
-if it has moved), then forgets the job thread: one reply per job thread, the
-first.
+runner, and when its first turn ends it sends the reply that turn ended
+with to the asking thread, with the relay's `sendTo`: a `send` command
+queued in the backend for the asking Mac's runner id and the thread id the
+watch holds, not through the sidebar index, which after a restart of the main
+Mac has nothing until an app connects. The reply is not the job's last word:
+later turns are not sent. It is sent once the turn's last row is the
+assistant's words and the reply has stayed the same for a second look; a
+turn that ends on a tool call goes after staying the same for two minutes.
+The watch stays ten minutes after the send, and a row that reached the
+backend late goes after the first, marked as the reply again.
 
 - The reply arrives as another thread's message (it starts with the
   `[Sent by the agent in the thread ...]` line), so the asking Mac holds it
@@ -673,11 +679,14 @@ first.
 - Only threads the starter started are watched this way, and only with the
   experiment on; with it off the watch waits, untouched, on disk.
 - The watch is in `far-reports.json`, so a restart of the main Mac keeps a
-  pending reply-back and sends it after. It is removed after a send that
-  succeeded; one that failed (the asking Mac's thread unknown, the relay
-  down) is tried again each tick. A crash between a send and the save that
-  removes the watch can send the reply a second time, which is accepted over
-  losing it. A job thread on the main Mac itself is covered the same way.
+  pending reply-back and sends it after. The starter checks that the watch
+  was saved (`add` says so) and tries again on later ticks until it is; the
+  request is answered either way. A send that failed (the asking Mac's thread
+  gone, the relay down) is tried again less and less often, up to every
+  fifteen minutes, and given up on after a day, with one log line. A crash
+  between a send and the save of it can send the reply a second time, which
+  is accepted over losing it. A job thread on the main Mac itself is covered
+  the same way.
 
 ## Sharing
 

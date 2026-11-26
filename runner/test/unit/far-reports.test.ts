@@ -38,6 +38,8 @@ function fake(dir = tmpDir('far-reports')) {
     failDeliver: false,
     jobsOn: true,
     failThere: false,
+    sends: 0,
+    warns: [] as string[],
   };
   const there: { runnerId: string; threadId: string; text: string }[] = [];
   const make = () =>
@@ -57,11 +59,12 @@ function fake(dir = tmpDir('far-reports')) {
       },
       jobReports: () => s.jobsOn,
       deliverThere: async (runnerId, threadId, text) => {
+        s.sends++;
         if (s.failThere) throw new Error('offline');
         there.push({ runnerId, threadId, text });
       },
       active: () => s.active,
-      log: { warn: () => {} },
+      log: { warn: (m: string) => void s.warns.push(m) },
       now: () => s.now,
     });
   const set = (status: string, at: string, rows: FarRow[]) => {
@@ -383,7 +386,7 @@ test('a reply-back that could not be delivered is tried again, and survives a ne
   assert.equal(f.there.length, 0);
   f.s.failThere = false;
   const again = f.make();
-  await f.tick(again);
+  await f.tick(again, MIN);
   assert.equal(f.there.length, 1);
 });
 
@@ -454,4 +457,23 @@ test('adding a job watch says whether it was saved', async () => {
   // A directory where the file should be: the write fails.
   fs.mkdirSync(path.join(blocked, 'far-reports.json'));
   assert.equal(bad.make().add({ ...JOB, threadId: 'x1' }), false);
+});
+
+test('a job reply that keeps failing is tried less often, and given up on after a day', async () => {
+  const f = fake();
+  f.s.failThere = true;
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  // Two ticks to see it settled, then it starts failing.
+  await f.tick(fr);
+  await f.tick(fr);
+  const attempts = () => f.s.sends;
+  const before = attempts();
+  for (let i = 0; i < 20; i++) await f.tick(fr);
+  assert.ok(attempts() - before < 8, `backed off: ${attempts() - before} attempts in 5 minutes`);
+  assert.deepEqual(fr.watching(), ['ab01cd23-0000']);
+  await f.tick(fr, 25 * 3600_000);
+  assert.deepEqual(fr.watching(), [], 'given up');
+  assert.equal(f.s.warns.filter((w) => /giving up/.test(w)).length, 1, 'said once');
 });
