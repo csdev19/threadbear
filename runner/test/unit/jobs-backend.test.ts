@@ -434,6 +434,18 @@ test('a claimed job request is denied straight from claimed with jobStart; witho
   assert.equal(rowOf(s, plain.requestId).state, 'claimed');
 });
 
+test('pendingJobRequests finds a job request behind 120 older pending free-text requests', async () => {
+  const s = await setup();
+  await s.publish(job());
+  for (let i = 0; i < 120; i++) {
+    await s.ctx.db.insert('runnerRequests', { requestId: `req-old-${String(i).padStart(4, '0')}`, runnerId: `old${i % 4}`, threadId: 'L', target: 'main', text: 'old', createdAt: 1 + i, state: 'pending', requestState: { kind: 'pending' } });
+  }
+  await s.ask('capture-evidence', good);
+  assert.equal(s.requests().length, 121);
+  const list = await call(s.ctx, relay.pendingJobRequests, { key: OWNER });
+  assert.deepEqual(list.map((r: { job: string }) => r.job), ['capture-evidence']);
+});
+
 test('pendingJobRequests also returns a claimed job request left more than 10 minutes, with state claimed', async () => {
   const s = await setup();
   await s.publish(job({ perHour: 60 }));

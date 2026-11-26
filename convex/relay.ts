@@ -794,7 +794,8 @@ const JOB_REQUESTS_MAX = 20;
 // A claim older than this is one its starter stopped holding: it claimed, then
 // stopped before it answered, and nothing else will ever finish it.
 const JOB_CLAIM_STALE_MS = 10 * 60_000;
-// The pending rows read to find them: a pending free-text request is at most 5 a runner.
+// The rows read of each state: only rows that name a job (by_state_job), so
+// old unanswered free-text requests, which stay pending up to a week, never crowd them out.
 const JOB_REQUESTS_READ = 100;
 
 /**
@@ -807,8 +808,8 @@ export const pendingJobRequests = query({
   returns: v.array(jobRequestOut),
   handler: async (ctx, { key }) => {
     await runnerAuth(ctx, key, 'pendingJobRequests');
-    const pending = await ctx.db.query('runnerRequests').withIndex('by_request_state', (q) => q.eq('requestState.kind', 'pending')).take(JOB_REQUESTS_READ);
-    const claimed = await ctx.db.query('runnerRequests').withIndex('by_request_state', (q) => q.eq('requestState.kind', 'claimed')).take(JOB_REQUESTS_READ);
+    const pending = await ctx.db.query('runnerRequests').withIndex('by_state_job', (q) => q.eq('requestState.kind', 'pending').gt('job', '')).take(JOB_REQUESTS_READ);
+    const claimed = await ctx.db.query('runnerRequests').withIndex('by_state_job', (q) => q.eq('requestState.kind', 'claimed').gt('job', '')).take(JOB_REQUESTS_READ);
     const stale = claimed.filter((x) => Date.now() - (x.decidedAt ?? x.createdAt) > JOB_CLAIM_STALE_MS);
     const out: Infer<typeof jobRequestOut>[] = [];
     const rows = [...pending.map((r) => ({ r, state: 'pending' as const })), ...stale.map((r) => ({ r, state: 'claimed' as const }))];
