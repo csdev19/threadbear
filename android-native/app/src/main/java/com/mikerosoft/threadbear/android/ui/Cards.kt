@@ -11,6 +11,7 @@ import androidx.compose.runtime.produceState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mikerosoft.threadbear.android.ThreadViewModel
 import com.mikerosoft.threadbear.kit.StartRequest
+import com.mikerosoft.threadbear.kit.StartRequestRead
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -210,15 +211,33 @@ fun ApprovalCard(card: PendingApproval.Approval, tapped: String?, respond: (Appr
 
 /**
  * A card asking to start a thread on another Mac. Drawn from the filed request
- * (phone:startRequest), never from the card's title; with no request to show
- * (an older backend, a failed query) it's the plain approval card as before.
+ * (phone:startRequest), never from the card's title. A card the phone can't
+ * start (an older backend, the backend said no) is the plain approval card as
+ * before; one whose request couldn't be read says so, with Try again and Don't.
  */
 @Composable
 fun StartRequestCard(vm: ThreadViewModel, card: PendingApproval.Approval, tapped: String?) {
     val api by vm.apiVersions.collectAsStateWithLifecycle()
-    val request by produceState<StartRequest?>(null, card.id, api) { value = vm.startRequest(card.id) }
+    var attempt by remember(card.id) { mutableStateOf(0) }
+    var retrying by remember(card.id) { mutableStateOf(false) }
+    val read by produceState<StartRequestRead?>(null, card.id, api, attempt) {
+        val got = vm.startRequest(card.id)
+        retrying = false
+        value = got
+    }
     val started by vm.startedCards.collectAsStateWithLifecycle()
-    val r = request
+    if (read == StartRequestRead.Unreadable) {
+        val signals = LocalSignals.current
+        CardFrame(signals.needsYou) {
+            Text("Couldn't read this request.", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Don't", { vm.respond(card.id, ApprovalOption.DENY) }, Modifier.weight(1f), tint = signals.failed, spinning = tapped == ApprovalOption.DENY.wire, enabled = tapped == null && !retrying)
+                Pill("Try again", { retrying = true; attempt += 1 }, Modifier.weight(1f), filled = true, spinning = retrying, enabled = tapped == null && !retrying)
+            }
+        }
+        return
+    }
+    val r = (read as? StartRequestRead.Startable)?.request
     if (r == null) {
         ApprovalCard(card, tapped) { vm.respond(card.id, it) }
         return

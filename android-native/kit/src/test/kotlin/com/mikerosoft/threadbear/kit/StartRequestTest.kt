@@ -2,6 +2,7 @@ package com.mikerosoft.threadbear.kit
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
@@ -67,5 +68,19 @@ class StartRequestTest {
         assertEquals("Auto", mode("auto"))
         assertEquals("Plan first", mode("plan"))
         assertEquals("Unknown (weird)", mode("weird"))
+    }
+
+    @Test fun readingTellsNotStartableFromCouldNotRead() = runTest {
+        // A null answer: the card isn't one the phone can start.
+        assertEquals(StartRequestRead.NotStartable, PhoneBackend(FakeTransport(), "tok").readStartRequest("t1", "a1"))
+        // The row: startable.
+        val row = FakeTransport().apply { queries = { _, _ -> full } }
+        assertEquals("d1", (PhoneBackend(row, "tok").readStartRequest("t1", "a1") as StartRequestRead.Startable).request.docId)
+        // A query that failed says so, so the card can offer Try again instead of looking like an old card.
+        val down = FakeTransport().apply { queries = { _, _ -> throw java.io.IOException("offline") } }
+        assertEquals(StartRequestRead.Unreadable, PhoneBackend(down, "tok").readStartRequest("t1", "a1"))
+        // Cancelling is never an error to show.
+        val cancelled = FakeTransport().apply { queries = { _, _ -> throw kotlinx.coroutines.CancellationException("gone") } }
+        assertFailsWith<kotlinx.coroutines.CancellationException> { PhoneBackend(cancelled, "tok").readStartRequest("t1", "a1") }
     }
 }
