@@ -131,10 +131,12 @@ its own runner, with the normal methods and the thread's id, and this
 runner answers from the backend and sends what the app does to the other
 runner as a `commands` row, as the phone does. The app has no Convex of its
 own and no link to the other Mac; nothing reaches another runner but its
-commands. Only the owner key can do this (`convex/relay.ts`, all owner
-only in Runner keys), so it's the main Mac's runner that answers; a runner
-on a runner key answers `-32000` for another runner's thread. The exception
-is a runner key with the read tier (API 107, Runner keys, "The read tier"):
+commands. Writes and tool output are owner only (`convex/relay.ts`, Runner
+keys), so it's the main Mac's runner that answers those. The reads
+(`remoteTail`, `remoteMessages`, `remoteThread`, `picturesAtSeqs` and the
+index and list reads) also answer a runner key that has the read tier
+(docs/protocol/keys.md, "The read tier"); a runner on a runner key without
+it answers `-32000` for another runner's thread. With the tier (API 107):
 that runner lists and opens other runners' threads, tail, messages, row and
 pasted pictures included, but every write (a send, `threads.create` with a
 `runnerId`, an approval answered there, an interrupt, a move, `files.list`)
@@ -142,8 +144,7 @@ fails before it reaches the backend with "This Mac's key can read other
 Macs' threads but not start or change anything there. Ask an agent here to
 use create_thread, which asks the main Mac.", and a tool's output
 (`threads.heldBody`) is answered as kept on the main Mac, as for a tool
-whose output is withheld. A key without the tier is unchanged. This is the
-only way the app opens another runner's thread.
+whose output is withheld. A key without the tier is unchanged. This is the only way the app opens another runner's thread.
 
 - **Which threads.** A `THREAD_METHODS` request whose `threadId` isn't this
   runner's (nor a draining runner's) but is in its `remoteThreads` list.
