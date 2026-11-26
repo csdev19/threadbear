@@ -343,8 +343,24 @@ impl Threadbear {
             cx,
         );
         // The rest of Appearance: accent, spacing and font.
+        // The Custom colour and Pure black come first: the accent and the
+        // theme are put on the windows with them.
+        let custom = settings
+            .saved
+            .accent_custom
+            .as_deref()
+            .and_then(threadbear_core::accent::parse_hex);
+        crate::style::remember_custom_accent(custom);
+        crate::style::set_pure_black(settings.saved.pure_black.unwrap_or(false), cx);
+        let accent =
+            crate::style::Accent::from_name(settings.saved.accent.as_deref().unwrap_or("system"));
+        // Custom with no usable colour saved is the system's.
         crate::style::set_accent_choice(
-            crate::style::Accent::from_name(settings.saved.accent.as_deref().unwrap_or("system")),
+            if accent == crate::style::Accent::Custom && custom.is_none() {
+                crate::style::Accent::System
+            } else {
+                accent
+            },
             cx,
         );
         crate::style::set_compact(settings.saved.compact.unwrap_or(false));
@@ -1681,6 +1697,33 @@ impl Threadbear {
         self.settings.saved.accent =
             (accent != crate::style::Accent::System).then(|| accent.name().to_owned());
         self.look_changed(window, cx);
+    }
+
+    /// Appearance's Custom accent in this colour (0xrrggbb): picked, applied
+    /// and saved at once. The colour is kept on its own, so a preset and back
+    /// brings it again.
+    pub(crate) fn set_custom_accent(
+        &mut self,
+        rgb: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        crate::style::set_custom_accent(rgb, cx);
+        self.settings.saved.accent = Some(crate::style::Accent::Custom.name().to_owned());
+        self.settings.saved.accent_custom = Some(threadbear_core::accent::format_hex(rgb));
+        self.look_changed(window, cx);
+    }
+
+    /// Appearance's Pure black switch: a black dark look, applied live.
+    pub(crate) fn set_pure_black(&mut self, on: bool, cx: &mut Context<Self>) {
+        crate::style::set_pure_black(on, cx);
+        self.settings.saved.pure_black = on.then_some(true);
+        if let Some(pane) = &self.pane {
+            pane.update(cx, |p, cx| p.remeasure_rows(cx));
+        }
+        self.save_settings_soon(cx);
+        cx.refresh_windows();
+        cx.notify();
     }
 
     /// Appearance's Spacing: Compact or Roomy.

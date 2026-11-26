@@ -1151,7 +1151,7 @@ pub(crate) fn prominent_button(
         .text_size(px(13.))
         .whitespace_nowrap()
         .bg(accent)
-        .text_color(gpui_kit::white())
+        .text_color(style::on_accent_text(cx))
         .when(enabled, |b| {
             b.cursor_pointer()
                 .active(move |s| s.bg(accent.opacity(0.85)))

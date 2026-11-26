@@ -2788,7 +2788,7 @@ pub(crate) fn card_button(
     let (fill, text, edge) = match look {
         ButtonLook::Picked => (
             style::control_accent(cx),
-            gpui_kit::white(),
+            style::on_accent_text(cx),
             gpui_kit::transparent_black(),
         ),
         ButtonLook::Suggested => (
@@ -2891,7 +2891,7 @@ fn picking_button(
         .shadow(button_shadow())
         // The words turn as the fill passes their middle.
         .text_color(if filled > 0.5 {
-            gpui_kit::white()
+            style::on_accent_text(cx)
         } else {
             style::label_text(cx)
         })

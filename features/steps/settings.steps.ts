@@ -3,7 +3,7 @@ import { Then, When } from '@cucumber/cucumber';
 import type { ThreadbearWorld } from '../support/world.ts';
 
 /** The Settings window while it's open, from either app's dump. */
-type SettingsInfo = { tab: string; accent?: string; compact?: boolean; keepAwake?: boolean | null; fullSync?: boolean | null; spareWeek?: boolean | null; modelWeeks?: { switch: string; on: boolean } | null; privateFolders?: string[] | null; labReviewers?: string[] | null; labPanel?: string[] | null };
+type SettingsInfo = { tab: string; accent?: string; accentCustom?: string | null; accentWarning?: boolean; pureBlack?: boolean; windowBackground?: string; compact?: boolean; keepAwake?: boolean | null; fullSync?: boolean | null; spareWeek?: boolean | null; modelWeeks?: { switch: string; on: boolean } | null; privateFolders?: string[] | null; labReviewers?: string[] | null; labPanel?: string[] | null };
 const shown = (d: unknown) => (d as { settingsWindow?: SettingsInfo | null }).settingsWindow;
 
 When('I open Settings', async function (this: ThreadbearWorld) {
@@ -70,6 +70,31 @@ Then('Settings says the accent is {string}', async function (this: ThreadbearWor
 
 Then('Settings says the spacing is compact', async function (this: ThreadbearWorld) {
   await this.until('Compact spacing', (d) => shown(d)?.compact === true);
+});
+
+// The Custom accent and Pure black (docs/specs/custom-theme.md).
+When('I enter {string} as the custom accent in Settings', async function (this: ThreadbearWorld, hex: string) {
+  await this.app.do({ cmd: 'accent-hex', hex, settings: true });
+});
+
+Then('Settings says the custom accent is {string}', async function (this: ThreadbearWorld, hex: string) {
+  await this.until(`the custom accent ${hex}`, (d) => shown(d)?.accentCustom === hex);
+});
+
+Then('Settings says Pure black is {word}', async function (this: ThreadbearWorld, state: string) {
+  await this.until(`Pure black ${state}`, (d) => shown(d)?.pureBlack === (state === 'on'));
+});
+
+Then('the window background is {string}', async function (this: ThreadbearWorld, hex: string) {
+  await this.until(`the window background ${hex}`, (d) => shown(d)?.windowBackground === hex);
+});
+
+Then('the window background is not {string}', async function (this: ThreadbearWorld, hex: string) {
+  await this.until(`a window background other than ${hex}`, (d) => !!shown(d)?.windowBackground && shown(d)?.windowBackground !== hex);
+});
+
+Then('Settings warns that the accent is hard to see', async function (this: ThreadbearWorld) {
+  await this.until('the accent warning', (d) => shown(d)?.accentWarning === true);
 });
 
 // Settings > General > Usage (features/usage.feature).

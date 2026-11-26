@@ -2747,10 +2747,27 @@ app opens.
 - **Light or dark**: three pictures. Same as the Mac (Same as Windows on
   Windows) follows the system's own setting: System Settings > Appearance,
   or Settings > Personalization > Colors > Choose your mode on Windows.
+- **Pure black**: a switch under the three pictures. With it on, the dark
+  look has a black window and sidebar, and menus a little lighter than
+  black, whenever Threadbear is dark: Dark, or Same as the Mac while the
+  system is dark. The light look is unchanged. Turn it off and the usual
+  dark grey comes back. The dark picture shows black while it is on.
 - **Accent**: the colour of buttons, ticks, the outline of a card that
   needs you and the tint behind your own messages. The first dot is the
-  Mac's accent (blue elsewhere); the rest are bear colours (Fur, Honey,
+  Mac's accent (blue elsewhere); the next are bear colours (Fur, Honey,
   Berry, Rose, Plum, Sky, Moss and Slate), from Wayne Sutton's fork.
+  The last dot, Custom, is a colour of your own: press it, then type or
+  paste a hex colour such as `#E8006A` (the `#` is optional), or use the
+  palette or sliders. Each colour you pick applies at once and is kept.
+  Switch to a bear colour and back and your own colour is still there. A
+  hex that is not a colour changes nothing. Before you pick one, the dot
+  is a plain ring with a plus.
+  Words on a button in the accent are white, unless the accent is light
+  enough that white is hard to read (Honey and Fur are), and then they are
+  near black. With Increase Contrast on, white is kept for darker accents
+  only. If the accent is hard to see against the window behind it, such as
+  a dark colour on Pure black, a line under the dots says "Hard to see on
+  this background". It does not stop you from using it.
 - **Spacing**: Roomy, or Compact for shorter sidebar rows and less room
   around each of your messages, so more fits.
 - **Text size**: Smaller, Normal or Larger, the same as View > Zoom

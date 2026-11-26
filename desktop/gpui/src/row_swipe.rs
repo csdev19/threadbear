@@ -345,7 +345,7 @@ impl Threadbear {
                 style::primary_opacity(cx, 0.07)
             };
             let ink = if armed {
-                gpui_kit::white()
+                style::on_accent_text(cx)
             } else {
                 style::secondary_text(cx)
             };

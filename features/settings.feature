@@ -67,3 +67,42 @@ Feature: Settings
     Then Settings says the accent is "plum"
     When I press "Rows and turns closer together" in Settings
     Then Settings says the spacing is compact
+
+  # The custom accent and Pure black (docs/specs/custom-theme.md). The hex goes
+  # in the way the picker's field takes it; the Swift app never gets either.
+  @settings.general @swift-pending
+  Scenario: A custom accent paints the app, comes back after a preset, and survives a relaunch
+    When I open Settings
+    And I enter "#E8006A" as the custom accent in Settings
+    Then Settings says the accent is "custom"
+    And Settings says the custom accent is "#e8006a"
+    When I press "Use Plum as the accent" in Settings
+    Then Settings says the accent is "plum"
+    When I press "Pick your own accent colour" in Settings
+    Then Settings says the accent is "custom"
+    And Settings says the custom accent is "#e8006a"
+    When the app is quit and opened again
+    And I open Settings
+    Then Settings says the accent is "custom"
+    And Settings says the custom accent is "#e8006a"
+
+  @settings.general @swift-pending
+  Scenario: A hex that is not a colour changes nothing
+    When I open Settings
+    And I enter "#E8006A" as the custom accent in Settings
+    And I enter "#zzz" as the custom accent in Settings
+    Then Settings says the accent is "custom"
+    And Settings says the custom accent is "#e8006a"
+
+  @settings.general @swift-pending
+  Scenario: Pure black makes the dark look black, and off puts the grey back
+    When I open Settings
+    And I press "Always dark, whatever the system is set to" in Settings
+    Then Settings says Pure black is off
+    And the window background is not "#000000"
+    When I press "Use a black background whenever Threadbear is dark" in Settings
+    Then Settings says Pure black is on
+    And the window background is "#000000"
+    When I press "Use a black background whenever Threadbear is dark" in Settings
+    Then Settings says Pure black is off
+    And the window background is not "#000000"

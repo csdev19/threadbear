@@ -442,7 +442,11 @@ impl Threadbear {
                     "chevron.right"
                 },
                 14.,
-                if armed { gpui_kit::white() } else { secondary },
+                if armed {
+                    style::on_accent_text(cx)
+                } else {
+                    secondary
+                },
             ));
         let label = style::size::LABEL;
         let words = v_flex()
