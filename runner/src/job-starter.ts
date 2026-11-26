@@ -50,7 +50,8 @@ export type JobStarterDeps = {
   createThere: (runnerId: string, p: { text: string; permissionMode: string }) => Promise<{ id: string }>;
   // Hands a started job thread to far-reports (src/far-reports.ts), which
   // passes the reply back to the asking thread on the asking Mac. False if
-  // the watch wasn't saved: it is tried again on later ticks.
+  // the watch wasn't saved: it is tried again on later ticks, and the request
+  // is not allowed until it is.
   startedJob?: (p: { threadId: string; runnerId: string; runnerName: string; starter: string; askerRunnerId: string; job: string }) => boolean | void;
   // Tells the asking thread's card the way it ended, if it has one (best effort).
   respondThere?: (threadId: string, approvalId: string, decision: 'allow' | 'deny', message?: string) => Promise<void>;
@@ -82,9 +83,9 @@ export function fillBrief(brief: string, values: Record<string, string>, params:
   return brief.replace(PLACEHOLDER, (whole, name: string) => (has(params, name) && has(values, name) ? values[name]! : whole));
 }
 
-type Stage = 'claim' | 'check' | 'start' | 'allow' | 'watch' | 'deny';
+type Stage = 'claim' | 'check' | 'start' | 'watch' | 'allow' | 'deny';
 // `claimed`: the row is (or was) held by a claim, so its deny goes straight from claimed (jobStart).
-type Work = { row: JobRequestRow; stage: Stage; claim: string; claimed?: boolean; text?: string; mode?: string; target?: RunnerRef; result?: { runnerId: string; runnerName: string; threadId: string }; reason?: string; unwatched?: boolean };
+type Work = { row: JobRequestRow; stage: Stage; claim: string; claimed?: boolean; text?: string; mode?: string; target?: RunnerRef; result?: { runnerId: string; runnerName: string; threadId: string }; reason?: string };
 
 export class JobStarter {
   private deps: JobStarterDeps;
@@ -226,9 +227,8 @@ export class JobStarter {
             ? await this.deps.createHere({ text: w.text, permissionMode: w.mode, startedBy: { kind: 'thread', label: row.runnerName, threadId: row.threadId, why: `Job ${row.job}` } })
             : await this.deps.createThere(target.id, { text: w.text, permissionMode: w.mode });
           w.result = { runnerId: target.id, runnerName: target.name, threadId: made.id };
-          w.stage = 'allow';
-          // Once, as the thread exists: the allow step may be asked again, this is not.
-          w.unwatched = this.deps.startedJob?.(this.watchOf(w, made.id)) === false;
+          // The watch is saved before the request is allowed (next stage).
+          w.stage = 'watch';
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
           // Turned down, or never sent: nothing exists. Anything else may.
@@ -236,6 +236,14 @@ export class JobStarter {
           w.reason = nothing ? `${target.name} couldn't start the job (${why}), so nothing was started.` : `${target.name} didn't say it started the job (${why}). It may have started: look there before asking again.`;
           w.stage = 'deny';
         }
+      } else if (w.stage === 'watch') {
+        // The thread exists: the reply-back's watch is saved before the request is
+        // allowed, so a restart can't lose the reply (the row stays claimed and the
+        // stale-claim rule denies it as maybe started). Until it saves, nothing is
+        // allowed and this stage is asked again next tick. A watch kept for a
+        // request that is denied later is harmless: the reply still comes.
+        if (w.result && this.deps.startedJob?.(this.watchOf(w, w.result.threadId)) === false) throw new Error('the reply-back watch could not be saved yet');
+        w.stage = 'allow';
       } else if (w.stage === 'allow') {
         try {
           await decide('allowed', { result: w.result, jobStart: true });
@@ -244,11 +252,6 @@ export class JobStarter {
         }
         this.deps.log.info('started a job', { requestId: row.requestId, job: row.job, runnerId: w.result?.runnerId, threadId: w.result?.threadId });
         await this.deps.respondThere?.(row.threadId, row.requestId, 'allow').catch(() => undefined);
-        if (!w.unwatched) return this.done(w);
-        w.stage = 'watch';
-      } else if (w.stage === 'watch') {
-        // The thread exists and the request is answered: only the reply-back's watch is left to save.
-        if (w.result && this.deps.startedJob?.(this.watchOf(w, w.result.threadId)) === false) throw new Error('the reply-back watch could not be saved yet');
         return this.done(w);
       } else {
         try {
