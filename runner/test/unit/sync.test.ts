@@ -4690,3 +4690,56 @@ test('mayReadOthers follows the heartbeat: a grant starts the watch, and clearin
   assert.deepEqual(sync.remoteThreads().threads, []);
   await sync.stop();
 });
+
+test('a heartbeat that says reads again after the backend refused the watch starts it again', async () => {
+  const watched: string[] = [];
+  const errors: ((e: Error) => void)[] = [];
+  const { sync, h } = setup({
+    key: `tbr_${'cd34'.repeat(16)}`,
+    answer: (fn) => (fn === 'sync:heartbeat' ? { apiVersion: 107, reads: true } : null),
+    extra: {
+      home: tmpDir('may-read-regrant'),
+      subscriber: { subscribe: (fn, _a, _u, onError) => (fn.startsWith('sync:otherRunners') && (watched.push(fn), errors.push(onError)), () => {}), close: () => {} },
+    },
+  });
+  sync.start();
+  await tick();
+  assert.equal(watched.length, 1);
+  // Cleared, and given again before the next heartbeat: the watch got forbidden meanwhile, and the word the runner holds never changed.
+  errors[0]!(Object.assign(new Error('Server Error'), { data: { kind: 'forbidden', message: "This runner's key can't call otherRunnersThreads" } }));
+  h.clock.advance(HEARTBEAT_MS);
+  await tick();
+  assert.equal(watched.length, 2, 'the next heartbeat that says reads watches again');
+  await sync.stop();
+});
+
+test('a runner key the backend turns down stops reading other Macs: the watch goes and the list empties', async () => {
+  const rejected = () => Object.assign(new Error('Server Error'), { data: { kind: 'auth', message: 'bad runner key' } });
+  let bad = false;
+  let unwatched = 0;
+  let onUpdate: ((v: unknown) => void) | undefined;
+  const { sync, h } = setup({
+    key: `tbr_${'cd34'.repeat(16)}`,
+    fail: () => (bad ? rejected() : undefined),
+    answer: (fn) => (fn === 'sync:heartbeat' ? { apiVersion: 107, reads: true } : null),
+    extra: {
+      home: tmpDir('may-read-rejected'),
+      subscriber: { subscribe: (fn, _a, update, _e) => ((fn === 'sync:otherRunnersList' && (onUpdate = update)), () => void unwatched++), close: () => {} },
+    },
+  });
+  sync.start();
+  await tick();
+  assert.equal(sync.mayReadOthers(), true);
+  onUpdate!([{ runnerId: 'r-main', name: 'Main', lastSeenAt: Date.now() }]);
+  assert.equal(sync.remoteThreads().runners.length, 1);
+  assert.ok(sync.relaySource());
+  bad = true;
+  h.clock.advance(HEARTBEAT_MS);
+  await tick();
+  assert.equal(sync.status().keyRejected, true);
+  assert.equal(sync.mayReadOthers(), false, 'a turned-down key reads nothing');
+  assert.equal(sync.relaySource(), undefined);
+  assert.ok(unwatched >= 1, 'the watch was dropped');
+  assert.deepEqual(sync.remoteThreads().runners, []);
+  await sync.stop();
+});
