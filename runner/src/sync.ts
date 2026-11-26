@@ -174,12 +174,14 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 106;
+export const BACKEND_API_VERSION = 107;
 export const INDEX_POOL_API_VERSION = 101;
 export const COORDINATORS_API_VERSION = 102;
 export const NEXT_PICK_API_VERSION = 103;
 // From this one relay:decideRequest takes `jobStart` and relay:pendingJobRequests is there (the job starter).
 export const JOB_START_API_VERSION = 105;
+// From this one a runner key can carry `reads` (the read tier, docs/protocol/keys.md), and its heartbeat answers it.
+export const READ_TIER_API_VERSION = 107;
 // From this one sync:removeThreads takes the runner's id and leaves a row
 // that's another runner's alone (a thread moved away), whatever the key.
 export const REMOVE_OWN_ROWS_API_VERSION = 92;
@@ -1727,6 +1729,8 @@ export class ConvexSync {
   private superseded = false;
   private picturesPausedUntil?: number;
   private ownerKeyRotating = false;
+  // The heartbeat said this runner key has the read tier (mayReadOthers).
+  private keyReads = false;
   private pushOff = false;
   private pushFailing: PushFailing | undefined;
   private schedulesRefused = false;
@@ -1852,7 +1856,8 @@ export class ConvexSync {
         takesPool: () => (this.backendApiVersion ?? 0) >= INDEX_POOL_API_VERSION,
         takesCoordinator: () => (this.backendApiVersion ?? 0) >= COORDINATORS_API_VERSION,
         takesSince: () => (this.backendApiVersion ?? 0) >= INDEX_SINCE_API_VERSION,
-        takesOrder: () => (this.backendApiVersion ?? 0) >= RUNNER_ORDER_API_VERSION,
+        takesOrder: () => this.ownerKey() && (this.backendApiVersion ?? 0) >= RUNNER_ORDER_API_VERSION,
+        mayRead: () => this.mayReadOthers(),
         takesServices: () => this.virtualRunnersReady(),
         seed: () => {
           const file = deps.cachePath;
@@ -2141,6 +2146,24 @@ export class ConvexSync {
   // asks the main Mac (create_thread on another runner files a request).
   ownerKey(): boolean {
     return Boolean(this.deps.key) && !this.deps.key!.startsWith('tbr_') && !this.deps.key!.startsWith('tbb_');
+  }
+
+  /**
+   * Whether this runner may read other runners' threads: the owner key, or a
+   * runner key (never a box's) that a backend of READ_TIER_API_VERSION or later
+   * said has the read tier. It gates the reads only (the sidebar's watch, the
+   * relay's reads); every write to another runner stays the owner key's.
+   */
+  mayReadOthers(): boolean {
+    if (this.ownerKey()) return true;
+    return this.secondRunner() && this.keyReads && (this.backendApiVersion ?? 0) >= READ_TIER_API_VERSION;
+  }
+
+  /** A heartbeat's word on the read tier: a change brings the watch of the other runners up or down. */
+  private noteReads(reads: boolean): void {
+    if (reads === this.keyReads) return;
+    this.keyReads = reads;
+    if (this.secondRunner()) this.index?.refresh();
   }
 
   /** The settings changed (an experiment switched): the sidebar's watch takes in what it now may (thread-index.ts refresh). */
@@ -4393,6 +4416,7 @@ export class ConvexSync {
         if (typeof boxState === 'string') this.deps.box?.heard?.(boxState, sentAt);
         if (!this.backendHeard && this.startupHeartbeatRetryMs > 1000) this.deps.log.info('convex startup heartbeat recovered');
         this.sawBackend(r);
+        this.noteReads((r as { reads?: unknown } | null)?.reads === true);
         // A start whose first flush went before a heartbeat said the
         // backend can list the shared rows checks them now.
         if (this.sharesCheckDue()) this.scheduleFlush();
@@ -4520,11 +4544,12 @@ export class ConvexSync {
 
   /**
    * What relay.ts reads and queues with: this runner's link to the backend,
-   * with the owner key only (a runner key can't read other runners' threads).
+   * with the owner key, or a runner key with the read tier (which relay.ts
+   * only reads with: its writes fail before they get here, RelayDeps.mayWrite).
    * Undefined with sync off or before the backend is at RELAY_API_VERSION.
    */
   relaySource(): { post: Post; subscribe?: Subscribe; key: string; apiVersion: number; upload: Upload; download: Download } | undefined {
-    if (this.off || !this.deps.key || (this.backendApiVersion ?? 0) < RELAY_API_VERSION) return undefined;
+    if (this.off || !this.deps.key || !this.mayReadOthers() || (this.backendApiVersion ?? 0) < RELAY_API_VERSION) return undefined;
     const subscriber = this.subscriber;
     return {
       post: (kind, fn, args) => this.post(kind, fn, args),

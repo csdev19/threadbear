@@ -594,3 +594,84 @@ test('the sidebar keeps pool identity and omits it for older backends', () => {
   assert.equal(toIndexRow(pooled, true, true, true, true, true, true, false).poolId, undefined);
   assert.equal(toIndexRow({ ...pooled, poolId: undefined }).poolId, undefined);
 });
+
+test('mayRead: a runner key without the read tier never subscribes; granting it starts the watch and clearing it drops what was heard', async () => {
+  const h = makeHarness();
+  let may = false;
+  const subscribed: string[] = [];
+  let onUpdate: ((v: unknown) => void) | undefined;
+  let unsubscribed = 0;
+  const heard: RemoteThreads[] = [];
+  const index = new ThreadIndex({
+    post: async () => null,
+    subscribe: (fn, _args, update) => {
+      subscribed.push(fn);
+      onUpdate = update;
+      return () => void unsubscribed++;
+    },
+    key: 'tbr_k',
+    runnerId: 'r-laptop',
+    home: h.home,
+    host: h.runner,
+    publish: (n: Notification) => n.method === 'remoteThreads.updated' && heard.push(n.params),
+    clock: h.clock,
+    log: nullLogger,
+    mayRead: () => may,
+  });
+  index.start();
+  await tick();
+  assert.deepEqual(subscribed, [], 'no key with reads, no subscription (nothing refused either)');
+  assert.equal(index.heard(), true, 'nothing to wait for');
+  index.list();
+  assert.deepEqual(subscribed, []);
+
+  // The heartbeat says the key has reads: the watch starts, and waits for its answer.
+  may = true;
+  index.refresh();
+  assert.deepEqual(subscribed, ['sync:otherRunnersThreads']);
+  assert.equal(index.heard(), false);
+  onUpdate!({ runners: [{ runnerId: 'r-main', name: 'Main', lastSeenAt: Date.now() }], threads: [{ runnerId: 'r-main', threadId: 'T1', title: 'T', cwd: '/x', accountId: 'a', provider: 'claude', status: 'idle', needsYou: false, unread: false, preview: '', createdAt: '2026-11-26T00:00:00.000Z', lastActivityAt: '2026-11-26T00:00:00.000Z' }] });
+  assert.equal(index.current().threads.length, 1);
+
+  // Cleared: the watch goes, and the app hears the other Macs are gone.
+  may = false;
+  index.refresh();
+  assert.equal(unsubscribed, 1);
+  assert.deepEqual(index.current().threads, []);
+  assert.deepEqual(index.current().runners, []);
+  assert.deepEqual(heard.at(-1)!.threads, []);
+  assert.equal(index.heard(), true);
+  index.list();
+  assert.equal(subscribed.length, 1, 'not asked again');
+  index.stop();
+});
+
+test('mayRead: a refusal while the key says it may read is tried again once the gate is refreshed', async () => {
+  const h = makeHarness();
+  let subscriptions = 0;
+  const index = new ThreadIndex({
+    post: async () => null,
+    subscribe: (_fn, _args, _u, onError) => {
+      subscriptions++;
+      if (subscriptions === 1) queueMicrotask(() => onError(Object.assign(new Error('Server Error'), { data: { kind: 'forbidden', message: "This runner's key can't call otherRunnersThreads" } })));
+      return () => {};
+    },
+    key: 'tbr_k',
+    runnerId: 'r-laptop',
+    home: h.home,
+    host: h.runner,
+    publish: () => {},
+    clock: h.clock,
+    log: nullLogger,
+    mayRead: () => true,
+  });
+  index.start();
+  await tick();
+  assert.equal(subscriptions, 1);
+  index.list();
+  assert.equal(subscriptions, 1, 'a refusal holds');
+  // The grant came after the refusal (a backend that hadn't seen it yet).
+  index.refresh();
+  assert.equal(subscriptions, 2);
+  index.stop();
+});

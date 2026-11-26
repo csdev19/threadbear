@@ -1424,6 +1424,8 @@ async function main(): Promise<void> {
   const relay = (relayRef = new Relay({
     source: () => sync.relaySource(),
     remote: () => sync.remoteNow(),
+    // A runner key with the read tier reads other Macs' threads and writes nothing there (relay.ts mustBeOwner).
+    owner: () => sync.ownerKey(),
     // Pictures for another runner's thread: only what media.import put in the inbox.
     readPicture: (file) => readShareImage(file, paths.inbox(cfg.home)),
     subscribed: (threadId) => rpcServer?.isSubscribed(threadId) ?? false,

@@ -184,6 +184,10 @@ export class ThreadIndex {
     takesOrder?: () => boolean;
     // Whether to watch the virtual runners (API 94, the experiment, the main key).
     takesServices?: () => boolean;
+    // Whether this runner's key may read other runners' threads: the owner
+    // key, or a runner key the backend said has the read tier (sync.ts
+    // mayReadOthers). Left out, the backend's refusal is the only gate.
+    mayRead?: () => boolean;
     // Whether a Mac app is connected to this runner. Only an app shows the
     // other runners' threads, so with none there's nothing to watch them
     // for. Left out, they're always watched.
@@ -316,6 +320,11 @@ export class ThreadIndex {
 
   private watch(): void {
     if (this.unsubscribe || !this.deps.subscribe || this.refused) return;
+    // A key without the read tier is never going to be answered: no ask, and nothing to wait for.
+    if (this.deps.mayRead && !this.deps.mayRead()) {
+      this.answered = true;
+      return;
+    }
     // What was heard before may be old by now: the tools wait for this watch's answer.
     this.answered = false;
     const failed = (e: Error) => this.watchFailed(e);
@@ -431,10 +440,11 @@ export class ThreadIndex {
     );
   }
 
-  // Only the owner key reads other runners' threads (docs/protocol/keys.md,
-  // "Runner keys"): with a runner key the watch is off for good, said
-  // once, and this runner's app lists only its own threads. Writing this
-  // runner's own rows carries on.
+  // Only the owner key, or a runner key with the read tier, reads other
+  // runners' threads (docs/protocol/keys.md, "The read tier"): refused, the
+  // watch is off, said once, until the gate is refreshed (refresh), and this
+  // runner's app lists only its own threads. Writing this runner's own rows
+  // carries on.
   private watchFailed(e: Error): void {
     const refused = forbiddenText(e);
     if (!refused) {
@@ -444,7 +454,7 @@ export class ThreadIndex {
     // A refusal is authoritative: there are no accessible remote rows.
     // A transient error before the first answer is still an unready list.
     this.answered = true;
-    if (!this.refused) this.deps.log.info('not watching the other runners’ threads: this runner has a runner key, and only the main Mac’s key reads them', { error: refused });
+    if (!this.refused) this.deps.log.info('not watching the other runners’ threads: this runner has a runner key without the read tier, and only the main Mac’s key (or a key given --read-others) reads them', { error: refused });
     this.refused = true;
     this.unwatch();
   }
@@ -531,6 +541,22 @@ export class ThreadIndex {
 
   refresh(): void {
     if (!this.running) return;
+    // The read tier changed (the heartbeat says so): start the watch a refusal
+    // had stopped, or drop what a cleared key heard, so its app stops listing them.
+    if (this.deps.mayRead) {
+      if (this.deps.mayRead()) {
+        if (this.refused || !this.unsubscribe) {
+          this.refused = false;
+          if (!this.deps.appConnected || this.deps.appConnected()) this.watch();
+        }
+      } else if (this.unsubscribe || this.remote.runners.length || this.remote.threads.length) {
+        this.unwatch();
+        this.answered = true;
+        this.refused = false;
+        this.onRemote({ runners: [], threads: [] });
+        return;
+      }
+    }
     // Now able to watch only what changed: start the watch over that way.
     if (this.unsubscribe && !this.watchingSince && this.deps.takesSince?.()) {
       this.unwatch();
