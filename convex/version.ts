@@ -503,4 +503,9 @@
 //    relay:fileRequest takes `job` and `params` in its request, refusing one
 //    that doesn't fit the job and one over the job's perHour. Nothing starts
 //    a job request without a card yet.
-export const API_VERSION = 104;
+// 105: the job starter on the main Mac (docs/protocol/runners.md, "The job
+//    starter"): relay:pendingJobRequests (owner only) lists the pending job
+//    requests, and relay:decideRequest takes `jobStart`, the only way to
+//    claim or allow a request that names a job. A runner sends `jobStart`
+//    only to a backend of 105 or later.
+export const API_VERSION = 105;
