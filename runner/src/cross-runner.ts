@@ -141,6 +141,15 @@ export function folderHere(cwd: string, home: string, realDir: (p: string) => st
   return underHome(asked, tilde, home, realDir);
 }
 
+// The folder a filed name is on this Mac, as named: `~` or `~/...` is this
+// Mac's home, any other name is just cleaned up (`..`, doubled and trailing
+// slashes). No other home is swapped in: that is what `folderHere` adds.
+function namedFolder(cwd: string, home: string): string {
+  const asked = cwd.trim();
+  const tilde = /^~(\/.*)?$/.exec(asked);
+  return tilde ? path.resolve(home, '.' + (tilde[1] ?? '')) : path.resolve(asked);
+}
+
 function underHome(asked: string, tilde: RegExpExecArray | null, home: string, realDir: (p: string) => string | undefined): string | undefined {
   const homed = tilde ?? /^\/(?:Users|home)\/[^/]+(\/.*)?$/.exec(asked);
   if (!homed) return undefined;
@@ -268,14 +277,20 @@ export class CrossRunner {
     // Starting here, `get` has put the folder as read under this Mac's home in
     // place of the filed one (a missing /Users/laptop/x becomes
     // /Users/<this home>/x), which the phone never showed. The phone's Start it
-    // binds the folder exactly as filed, so any other place is left for the
-    // Mac's card, which shows it. A folder that isn't here at all stays on the
-    // decline path in `answer`, which tells the thread why.
+    // binds the folder as the phone showed it: the filed name, read on this
+    // Mac (`~` is this Mac's home, a link is followed, a trailing slash
+    // doesn't matter), must be the very folder it would start in. A name that
+    // reaches a folder only by swapping another home for this one is left for
+    // the Mac's card, which shows it. A folder that isn't here at all stays on
+    // the decline path in `answer`, which tells the thread why.
     const filed = (await this.row(threadId, approvalId)).cwd;
     if (target.self && filed) {
       const place = this.place({ ...request, cwd: filed });
-      if (place && 'folder' in place && place.folder !== filed) {
-        throw bad(`That request's folder is ${filed}, which isn't a folder on the main Mac as named. Answer it on the Mac, where the card shows where it would start.`);
+      if (place && 'folder' in place) {
+        const named = this.deps.realDir(namedFolder(filed, this.deps.home()));
+        if (!named || named !== this.deps.realDir(place.folder)) {
+          throw bad(`The folder the main Mac would start in isn't the folder the phone showed (${filed}). Answer it on the Mac, where the card shows where it would start.`);
+        }
       }
     }
     // The phone's card says Full access for a request that asked for no mode,
