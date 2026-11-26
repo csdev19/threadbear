@@ -17,6 +17,8 @@ import { ErrorCode, RpcError } from './protocol.ts';
 import { refused, type RunnerRef } from './cross-runner.ts';
 import { wasNotSent } from './relay.ts';
 
+// The experiment that turns it on (src/experiments/multiMacJobs.md).
+export const JOB_STARTER_EXPERIMENT = 'multiMacJobs';
 export const TICK_MS = 15_000;
 // An offline target is waited for this long before the request is denied.
 export const OFFLINE_WAIT_MS = 10 * 60_000;

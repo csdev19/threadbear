@@ -334,6 +334,12 @@ the owning runner.
 
 ## What runs in the background
 
+- **Starting jobs for another Mac** (`runner/src/job-starter.ts`, experiment
+  `multiMacJobs`, off by default): on the main Mac only (the one with the owner key), every 15
+  seconds it asks your Convex backend for requests another Mac's runner key filed for one of your
+  named jobs, and starts each valid one on the Mac the job names with the job's brief and access
+  mode, with no card. It writes no file; it answers the request in the backend (claimed, allowed
+  or denied with a reason). A free-text request is never started this way.
 - **Landing work** (`runner/src/worktrees.ts`): `tb land` keeps an empty
   `threadbear-land.lock` in the repo's common git directory. It runs
   macOS's `lockf` (Linux's `flock`) with a small Node child to hold an OS

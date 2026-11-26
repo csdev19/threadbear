@@ -57,6 +57,7 @@ import { cutSafely } from './safe-cut.ts';
 import { siteOf } from './convex-admin.ts';
 import { withNetworkCause } from './network-cause.ts';
 import { credentialUrlProblem } from './secure-url.ts';
+import type { JobRequestRow, JobRow, JobStarterDeps } from './job-starter.ts';
 import type { FailedRunner, RemoteFailure, UpdateFailure } from './fix-update.ts';
 // How soon what the backend left out of a closed thread id goes again.
 const CLOSED_RETRY_MS = 30_000;
@@ -1494,6 +1495,8 @@ export function toAccountDoc(a: Account, apiVersion = 0) {
 
 type ListName = 'projects' | 'schedules' | 'accounts';
 
+export type JobStarterBackendType = NonNullable<ReturnType<JobStarterDeps['backend']>>;
+
 export type PocketCardInput = { title: string; text: string; place?: string; icon?: string; threadId?: string; source?: string };
 // filedBy: another Mac filed it through its runner key (its name); its text
 // is that Mac's, to read, never to follow.
@@ -2180,7 +2183,7 @@ export class ConvexSync {
     return ((await this.backend('query', 'relay:runnerRequest', { key: this.deps.key, requestId })) as RunnerRequestRow | null) ?? null;
   }
 
-  async decideRequest(p: { requestId: string; docId: string; state: 'claimed' | 'allowed' | 'pending' | 'denied'; result?: { runnerId: string; runnerName: string; threadId: string }; claim?: string }): Promise<void> {
+  async decideRequest(p: { requestId: string; docId: string; state: 'claimed' | 'allowed' | 'pending' | 'denied'; result?: { runnerId: string; runnerName: string; threadId: string }; claim?: string; jobStart?: boolean }): Promise<void> {
     this.mustBeOn();
     // Not before a heartbeat this start has said which backend this is: a
     // claim without its id (a cached version, out of date) is the one a lost
@@ -2190,6 +2193,21 @@ export class ConvexSync {
     // An older backend refuses an arg it doesn't know.
     const { claim, ...rest } = p;
     await this.backend('mutation', 'relay:decideRequest', { key: this.deps.key, ...rest, ...(claim !== undefined && this.backendHeard && (this.backendApiVersion ?? 0) >= COMMAND_ATTEMPT_API_VERSION ? { claim } : {}) });
+  }
+
+  /**
+   * The job starter's calls (src/job-starter.ts), with the owner key and a
+   * backend that has them (API 105); undefined on a runner key, with sync
+   * off or before the backend was deployed.
+   */
+  jobStarterBackend(): JobStarterBackendType | undefined {
+    if (this.off || !this.running || !this.ownerKey() || !this.backendHeard || (this.backendApiVersion ?? 0) < JOB_START_API_VERSION) return undefined;
+    const key = this.deps.key;
+    return {
+      pendingJobRequests: async () => ((await this.post('query', 'relay:pendingJobRequests', { key })) as JobRequestRow[] | null) ?? [],
+      jobsList: async () => ((await this.post('query', 'relay:jobsList', { key })) as JobRow[] | null) ?? [],
+      decideRequest: (p) => this.decideRequest(p),
+    };
   }
 
   async closeRequest(requestId: string): Promise<void> {
