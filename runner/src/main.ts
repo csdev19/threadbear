@@ -40,6 +40,7 @@ import { StuckJobs } from './stuck-jobs.ts';
 import { FrozenClis } from './frozen-cli.ts';
 import { KeepAwake } from './keep-awake.ts';
 import { experimentOn } from './experiments.ts';
+import { JobStarter, JOB_STARTER_EXPERIMENT, TICK_MS as JOB_TICK_MS } from './job-starter.ts';
 import { AgentArchive, ARCHIVE_EXPERIMENT, ARCHIVE_MCP_NAME, archiveMcpServer, archiveMethods } from './agent-archive.ts';
 import { MemorySync } from './memory-sync.ts';
 import { Reinstaller } from './reinstall.ts';
@@ -1534,6 +1535,30 @@ async function main(): Promise<void> {
   crossHooks = {
     start: (threadId, req) => cross.start(threadId, req),
   };
+  // The job starter (src/job-starter.ts): the main Mac starts a runner key's
+  // request for a named job by itself. Only with the owner key and the
+  // multiMacJobs experiment on, read each tick; not on a draining or stopping runner.
+  const jobStarter = new JobStarter({
+    enabled: () => experimentOn(cfg.home, JOB_STARTER_EXPERIMENT) && !draining && !stopping && !runner.draining,
+    backend: () => sync.jobStarterBackend(),
+    self: () => ({ id: syncRunnerId, name: cfg.sync.name ?? defaultRunnerName() }),
+    runners: async () => (await scheduler.runners()).map((r) => ({ id: r.id, name: r.name, self: r.self, online: r.online })),
+    createHere: async (p) => {
+      const mode = permission(p.permissionMode);
+      const r = await router().create({ text: p.text, ...(mode ? { permissionMode: mode } : {}), ...(p.startedBy ? { startedBy: p.startedBy } : {}) });
+      return { id: r.thread.id };
+    },
+    createThere: async (runnerId, p) => {
+      const r = (await relay.create(runnerId, { ...p })) as { thread: { id: string } };
+      return { id: r.thread.id };
+    },
+    respondThere: async (threadId, approvalId, decision, message) => {
+      await relay.call(threadId, 'approvals.respond', { threadId, approvalId, decision, ...(message ? { message } : {}) });
+    },
+    log,
+    now: () => Date.now(),
+  });
+  setInterval(() => void jobStarter.tick(), JOB_TICK_MS).unref();
   // Moving a thread to another runner (src/moves.ts, runner/moves.ts).
   let runnerNames = new Map<string, string>();
   const refreshNames = () =>

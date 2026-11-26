@@ -207,7 +207,7 @@ test('a job that no longer exists denies the request', async () => {
 });
 
 test('parameters that no longer fit the job (a missing or extra name) deny the request', async () => {
-  for (const params of [{ repo: 'csdev19/threadbear', branch: 'x' }, { repo: 'csdev19/threadbear', branch: 'x', pr: '1', extra: 'y' }]) {
+  for (const params of [{ repo: 'csdev19/threadbear', branch: 'x' } as Record<string, string>, { repo: 'csdev19/threadbear', branch: 'x', pr: '1', extra: 'y' }]) {
     const f = fake([jobRequest({ params })]);
     await f.starter.tick();
     assert.equal(f.created.length, 0);

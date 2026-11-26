@@ -268,8 +268,8 @@ test('a job request cannot be claimed or allowed (the old runner path), but can 
   await s.ask('capture-evidence', good);
   const [a] = s.requests();
   // The previous runner's answerNow: claim with the owner key, before it creates a thread.
-  const decide = (row: { requestId: string; _id: unknown }, state: string, extra: Record<string, unknown> = {}) =>
-    call(s.ctx, relay.decideRequest, { key: OWNER, requestId: row.requestId, docId: String(row._id), state, ...extra });
+  const decide = (row: { _id: unknown; [k: string]: unknown }, state: string, extra: Record<string, unknown> = {}) =>
+    call(s.ctx, relay.decideRequest, { key: OWNER, requestId: row.requestId as string, docId: String(row._id), state, ...extra });
   assert.equal(await outcome(decide(a!, 'claimed', { claim: 'claim-abcdefgh' })), 'badArgs');
   assert.equal(await outcome(decide(a!, 'allowed', { result: { runnerId: MINI, runnerName: 'mini', threadId: 'T' } })), 'badArgs');
   assert.equal(s.requests().find((r) => r.requestId === a!.requestId)!.state, 'pending');
@@ -281,9 +281,9 @@ test('a job request cannot be claimed or allowed (the old runner path), but can 
 // ---- layer 2: the job starter's two backend pieces (docs/protocol/runners.md, "The job starter")
 
 const claimArgs = { claim: 'claim-abcdefgh' };
-const decide = (s: Awaited<ReturnType<typeof setup>>, row: { requestId: string; _id: unknown }, state: string, extra: Record<string, unknown> = {}, key = OWNER) =>
-  call(s.ctx, relay.decideRequest, { key, requestId: row.requestId, docId: String(row._id), state, ...extra });
-const rowOf = (s: Awaited<ReturnType<typeof setup>>, requestId: string) => s.requests().find((r) => r.requestId === requestId)!;
+const decide = (s: Awaited<ReturnType<typeof setup>>, row: { _id: unknown; [k: string]: unknown }, state: string, extra: Record<string, unknown> = {}, key = OWNER) =>
+  call(s.ctx, relay.decideRequest, { key, requestId: row.requestId as string, docId: String(row._id), state, ...extra });
+const rowOf = (s: Awaited<ReturnType<typeof setup>>, requestId: string) => s.requests().find((r) => r.requestId === requestId)! as unknown as { _id: unknown; requestId: string; [k: string]: unknown };
 const at = { runnerId: MINI, runnerName: 'mini', threadId: 'T-new' };
 
 test('pendingJobRequests is the owner key only', async () => {
