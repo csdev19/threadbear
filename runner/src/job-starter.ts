@@ -153,8 +153,8 @@ export class JobStarter {
       if (this.deps.now() - row.createdAt < OFFLINE_WAIT_MS) return;
       return deny(`${target.name} is offline, so nothing was started.`);
     }
-    // A plan goes to another Mac as Ask: a runner from before Plan first took a mode it didn't know as Full.
-    const mode: JobMode = !target.self && job.mode === 'plan' ? 'ask' : (job.mode as JobMode);
+    // The job's mode goes on as it is, a plan too: relay.create sends Plan to another Mac in a way an older runner reads as Ask (remoteCreateMode).
+    const mode = job.mode as JobMode;
     const text = jobHeader(job, row) + fillBrief(job.brief, row.params, job.params);
     await this.run(this.remember({ row, stage: 'claim', claim: crypto.randomUUID(), text, mode, target }));
   }

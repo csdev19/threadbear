@@ -623,7 +623,8 @@ It is how a job request starts without a card (`runner/src/job-starter.ts`).
   by replacing each `{param}` with the request's value once (a value is
   never searched again for placeholders), and starts a thread on the
   target with that text, the job's `mode` as its permission mode (never
-  left out), no folder (the target's default), and no title, model or
+  left out; a plan goes as Plan, which a target from before Plan first
+  reads as Ask), no folder (the target's default), and no title, model or
   effort. If the target is the main Mac itself it starts it here, as the
   card path's create does. Then it marks the request `allowed` with
   `jobStart` and where it started. It never leaves a request `claimed`: a
