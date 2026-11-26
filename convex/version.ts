@@ -498,4 +498,9 @@
 // 103: thread rows can carry nextPick ("one") and nextSuggested (index into
 //    next) for mutually exclusive done-card follow-ups. A runner sends them
 //    only to a backend of 103 or later; older apps ignore them.
-export const API_VERSION = 103;
+// 104: jobs (docs/protocol/runners.md, "Jobs"): the owner writes named job
+//    templates (relay:setJobs) that runner keys read (relay:jobsList), and
+//    relay:fileRequest takes `job` and `params` in its request, refusing one
+//    that doesn't fit the job and one over the job's perHour. Nothing starts
+//    a job request without a card yet.
+export const API_VERSION = 104;

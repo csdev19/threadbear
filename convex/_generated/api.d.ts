@@ -23,6 +23,7 @@ import type * as commandStates from "../commandStates.js";
 import type * as crons from "../crons.js";
 import type * as devices from "../devices.js";
 import type * as http from "../http.js";
+import type * as jobRules from "../jobRules.js";
 import type * as lib from "../lib.js";
 import type * as machines from "../machines.js";
 import type * as memorySync from "../memorySync.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   devices: typeof devices;
   http: typeof http;
+  jobRules: typeof jobRules;
   lib: typeof lib;
   machines: typeof machines;
   memorySync: typeof memorySync;
