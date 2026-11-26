@@ -79,7 +79,7 @@ const other = (m: string) => new RpcError(ErrorCode.other, m);
 // Both come from the asking runner (its thread's id, its name), so only
 // characters that can't end the line or the brackets get in.
 // The backend said no, and will again (not a dropped connection).
-function refused(e: unknown): boolean {
+export function refused(e: unknown): boolean {
   const kind = (e as { data?: { kind?: unknown } } | null)?.data?.kind;
   if (kind === 'badArgs' || kind === 'notFound' || kind === 'forbidden') return true;
   return /"kind"\s*:\s*"(badArgs|notFound|forbidden)"/.test(String((e as Error | null)?.message ?? ''));
