@@ -595,3 +595,30 @@ test("from the phone: a folder that isn't here declines the card with why, as St
   assert.ok(f.log.some((l) => l.startsWith('respond c req-p1 deny')));
   assert.equal(f.rows.get('req-p1')!.state, 'denied');
 });
+
+// The phone's card says "Full access (none asked for)" for a request with no
+// mode, and the destination's own default (Ask, Auto) would otherwise apply
+// when the thread is made, so the phone's start binds Full access explicitly.
+test('from the phone: a request with no mode starts with full access, and one with a mode keeps it', async () => {
+  const f = fake({ owner: true, phoneStarts: true });
+  f.rows.set('req-p1', phoneRow({ target: 'main' }));
+  f.setOpen('req-p1');
+  await f.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.equal(JSON.parse(f.log.find((l) => l.startsWith('here '))!.slice('here '.length)).permissionMode, 'full');
+  const g = fake({ owner: true, phoneStarts: true });
+  g.rows.set('req-p1', phoneRow());
+  g.setOpen('req-p1');
+  await g.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.equal(JSON.parse(g.log.find((l) => l.startsWith('there '))!.slice('there mini1 '.length)).permissionMode, 'full');
+  const h = fake({ owner: true, phoneStarts: true });
+  h.rows.set('req-p1', phoneRow({ permissionMode: 'auto' }));
+  h.setOpen('req-p1');
+  await h.cross.startFromPhone('c', 'req-p1', 'doc1');
+  assert.equal(JSON.parse(h.log.find((l) => l.startsWith('there '))!.slice('there mini1 '.length)).permissionMode, 'auto');
+  // The Mac's own card is as it was: no mode filed, none sent, so the destination's default applies.
+  const m = fake({ owner: true });
+  m.rows.set('req-p1', phoneRow({ target: 'main' }));
+  m.setOpen('req-p1');
+  await m.cross.answer('c', 'req-p1', true, undefined, (await m.cross.get('c', 'req-p1')).fingerprint);
+  assert.equal('permissionMode' in JSON.parse(m.log.find((l) => l.startsWith('here '))!.slice('here '.length)), false);
+});
