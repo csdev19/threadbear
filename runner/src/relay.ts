@@ -392,6 +392,11 @@ export type RelayDeps = {
   source: () => RelaySource | undefined;
   // Other runners and their threads, as the sidebar has them (thread-index.ts).
   remote: () => RemoteThreads;
+  // Whether this runner's key is the owner's. A runner key with the read tier
+  // (sync.ts mayReadOthers) reads other runners' threads but queues nothing,
+  // and gets no tool output, logins or pools: those fail or say so before the
+  // backend is asked. Left out, the owner's (the backend's refusal is the gate).
+  owner?: () => boolean;
   publish: (n: Notification) => void;
   readPicture?: ReadPicture;
   // Whether an app connection is subscribed to the thread (rpc.ts).
@@ -399,6 +404,9 @@ export type RelayDeps = {
   clock: Clock;
   log: Logger;
 };
+
+// What a runner key with the read tier gets for anything that would write to another Mac.
+export const READS_ONLY_TEXT = "This Mac's key can read other Macs' threads but not start or change anything there. Ask an agent here to use create_thread, which asks the main Mac.";
 
 const RUNNING = new Set(['running', 'starting', 'waiting']);
 const TOOL_NAMES: Record<string, string> = { command: 'Bash', read: 'Read', edit: 'Edit', write: 'Write', search: 'Grep', web: 'WebFetch', task: 'Task' };
@@ -471,7 +479,8 @@ export function relayEvents(threadId: string, rows: RelayRow[], row: RelayThread
         out.push(env(base + 2, r, { type: 'tool.result', itemId, ok: true, text: `The output is kept on ${runnerName}.`, truncated: false, images: [], heldBack: { seq: r.seq } }));
         const body = bodies?.get(r.seq);
         if (body?.state === 'withheld') {
-          out.push(env(base + 6, r, { type: 'tool.result', itemId, ok: true, text: `This is kept on ${runnerName}: what this tool read or ran can hold secrets, so its output doesn't go through Convex.`, truncated: false, images: [] }));
+          const text = body.reason === 'readsOnly' ? `This is kept on ${runnerName}: this Mac's key reads other Macs' threads but not what their tools read or ran.` : `This is kept on ${runnerName}: what this tool read or ran can hold secrets, so its output doesn't go through Convex.`;
+          out.push(env(base + 6, r, { type: 'tool.result', itemId, ok: true, text, truncated: false, images: [] }));
         } else if (body?.state === 'text') {
           // The app fills in the row it has from these, by itemId.
           let input: Record<string, unknown> = {};
@@ -692,6 +701,11 @@ export class Relay {
     const s = this.deps.source();
     if (!s) throw new RpcError(ErrorCode.other, "This Mac's runner can't reach other runners through Convex now (sync is off, or Convex hasn't updated yet).");
     return s;
+  }
+
+  // A write to another runner, from a key that may only read (RelayDeps.owner).
+  private mustBeOwner(): void {
+    if (this.deps.owner && !this.deps.owner()) throw new RpcError(ErrorCode.other, READS_ONLY_TEXT);
   }
 
   status(): { watching: number; held: number; reads: number; bytes: number } {
@@ -1456,6 +1470,7 @@ export class Relay {
     // to say it went: it waits for done until then, and only then takes
     // taken as a yes. Still pending at TAKE_MS is queued, as for any send
     // (Codex's review, 8 Nov).
+    this.mustBeOwner();
     const name = this.runnerName(runnerId);
     this.mustBeOnline(runnerId);
     let src: RelaySource;
@@ -1519,6 +1534,13 @@ export class Relay {
     if (seq === undefined || !Number.isSafeInteger(seq)) throw new RpcError(ErrorCode.other, 'seq is required');
     const held = w.bodies.get(seq);
     if (held) return { state: held.state };
+    // A key that may only read never gets tool output (sync:remoteBody is the
+    // owner's): the row says it stays on the main Mac, and nothing is asked.
+    if (this.deps.owner && !this.deps.owner()) {
+      w.bodies.set(seq, { state: 'withheld', reason: 'readsOnly' });
+      this.emit(w);
+      return { state: 'withheld' };
+    }
     let body: HeldBody = null;
     try {
       body = (await this.read('sync:remoteBody', { threadId: w.threadId, seq })) as HeldBody;
@@ -1552,6 +1574,7 @@ export class Relay {
    * backend until its command is over, so discarding is always safe.
    */
   private async withPictures<T>(runnerId: string, raw: unknown, started: number, run: (images: string[]) => Promise<T>): Promise<T> {
+    this.mustBeOwner();
     if (!Array.isArray(raw) || !raw.length) return run([]);
     const name = this.runnerName(runnerId);
     if (raw.length > MAX_PICTURES) throw new RpcError(ErrorCode.badParams, `At most ${MAX_PICTURES} pictures go to ${name} in one message.`);
@@ -1928,6 +1951,7 @@ export class Relay {
 
   /** Another runner's logins for the new-thread pickers, from the backend's accounts rows. */
   async logins(runnerId: string): Promise<{ accounts: unknown[]; pools: unknown[]; usagePools?: unknown[]; defaults: Record<string, unknown> }> {
+    if (this.deps.owner && !this.deps.owner()) throw new RpcError(ErrorCode.other, "Another Mac's logins and pools are the main Mac's to read, so this Mac can't show them.");
     const rows = (await this.read('relay:remoteAccounts', { runnerId })) as (Account & { runnerId?: string })[];
     const accounts = rows.map(({ runnerId: _r, ...a }) => ({ ...a, configDir: '' }));
     const recent = this.deps.remote().threads.filter((t) => t.runnerId === runnerId).sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0];

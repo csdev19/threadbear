@@ -4619,3 +4619,74 @@ test('heartbeats mirror effective pools only after the backend can take them', a
     await sync.stop();
   }
 });
+
+// The read tier (ADR 0002): whether this runner may read other runners' threads.
+test('mayReadOthers: the owner key always; a runner key only once a backend of 107 or later says it has reads', async () => {
+  const make = (key: string, heartbeat: unknown) => {
+    const watched: string[] = [];
+    const { sync } = setup({
+      key,
+      answer: (fn) => (fn === 'sync:heartbeat' ? heartbeat : null),
+      extra: {
+        home: tmpDir('may-read-others'),
+        subscriber: { subscribe: (fn, _a, _u, _e) => (watched.push(fn), () => {}), close: () => {} },
+      },
+    });
+    return { sync, watched };
+  };
+  const RUNNER_KEY = `tbr_${'cd34'.repeat(16)}`;
+  const owner = make('k', { apiVersion: 107 });
+  assert.equal(owner.sync.mayReadOthers(), true, 'before any heartbeat');
+  const plain = make(RUNNER_KEY, { apiVersion: 107 });
+  const reader = make(RUNNER_KEY, { apiVersion: 107, reads: true });
+  const old = make(RUNNER_KEY, { apiVersion: 106, reads: true });
+  const box = make(`tbb_${'ef56'.repeat(16)}`, { apiVersion: 107, reads: true });
+  for (const m of [plain, reader, old, box]) {
+    assert.equal(m.sync.mayReadOthers(), false, 'before the heartbeat says');
+    m.sync.start();
+  }
+  await tick();
+  assert.equal(plain.sync.mayReadOthers(), false);
+  assert.equal(reader.sync.mayReadOthers(), true);
+  assert.equal(old.sync.mayReadOthers(), false, 'a backend before 107 has no read tier');
+  assert.equal(box.sync.mayReadOthers(), false, 'a box key never reads');
+  // The sidebar's watch of the other runners runs for the reader alone.
+  assert.ok(reader.watched.some((f) => f === 'sync:otherRunnersList' || f === 'sync:otherRunnersThreads'), reader.watched.join());
+  for (const m of [plain, old, box]) assert.equal(m.watched.filter((f) => f.startsWith('sync:otherRunners')).length, 0);
+  // The order is Mike's, for the owner key alone: a key with reads doesn't ask for it.
+  assert.equal(reader.watched.includes('sync:runnerOrder'), false);
+  // And relay reads (relaySource) are only for one that may read.
+  assert.ok(reader.sync.relaySource());
+  assert.equal(plain.sync.relaySource(), undefined);
+  assert.equal(old.sync.relaySource(), undefined);
+  for (const m of [owner, plain, reader, old, box]) await m.sync.stop();
+});
+
+test('mayReadOthers follows the heartbeat: a grant starts the watch, and clearing it stops it and empties the list', async () => {
+  let reads = false;
+  const watched: string[] = [];
+  let unwatched = 0;
+  const { sync, h } = setup({
+    key: `tbr_${'cd34'.repeat(16)}`,
+    answer: (fn) => (fn === 'sync:heartbeat' ? { apiVersion: 107, ...(reads ? { reads: true } : {}) } : null),
+    extra: {
+      home: tmpDir('may-read-follows'),
+      subscriber: { subscribe: (fn, _a, _u, _e) => (watched.push(fn), () => void unwatched++), close: () => {} },
+    },
+  });
+  sync.start();
+  await tick();
+  assert.equal(watched.length, 0);
+  reads = true;
+  h.clock.advance(HEARTBEAT_MS);
+  await tick();
+  assert.equal(sync.mayReadOthers(), true);
+  assert.ok(watched.some((f) => f.startsWith('sync:otherRunners')));
+  reads = false;
+  h.clock.advance(HEARTBEAT_MS);
+  await tick();
+  assert.equal(sync.mayReadOthers(), false);
+  assert.ok(unwatched >= 1, 'the watch was dropped');
+  assert.deepEqual(sync.remoteThreads().threads, []);
+  await sync.stop();
+});

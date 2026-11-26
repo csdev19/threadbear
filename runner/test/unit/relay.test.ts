@@ -89,7 +89,7 @@ test('a tail past what is held asks for the gap; one that overlaps just merges',
 });
 
 type Call = { kind: string; fn: string; args: Record<string, unknown> };
-type HarnessOpts = { usagePools?: unknown[]; paged?: boolean; online?: boolean; row?: () => RelayThreadRow & { share?: unknown }; apiVersion?: number; queueFails?: boolean; uploadMs?: number; rows?: RelayRow[]; readMessages?: (args: Record<string, unknown>) => unknown; pictures?: (args: Record<string, unknown>) => unknown };
+type HarnessOpts = { readsOnly?: boolean; usagePools?: unknown[]; paged?: boolean; online?: boolean; row?: () => RelayThreadRow & { share?: unknown }; apiVersion?: number; queueFails?: boolean; uploadMs?: number; rows?: RelayRow[]; readMessages?: (args: Record<string, unknown>) => unknown; pictures?: (args: Record<string, unknown>) => unknown };
 function harness(opts: HarnessOpts = {}) {
   const calls: Call[] = [];
   const subs = new Map<string, { args: Record<string, unknown>; onUpdate: (v: unknown) => void; closed: boolean }[]>();
@@ -153,6 +153,8 @@ function harness(opts: HarnessOpts = {}) {
       },
     }),
     remote: () => remote,
+    // A runner key with the read tier reads but writes nothing (sync.ts mayReadOthers).
+    ...(opts.readsOnly ? { owner: () => false } : {}),
     // This runner's inbox: what the app's media.import made.
     readPicture: (file) => (file.startsWith('/inbox/') ? { bytes: Buffer.from(`bytes of ${file}`), mediaType: 'image/png' } : { skip: "it isn't in this runner's inbox" }),
     subscribed: (id) => subscribed.has(id),
@@ -1523,4 +1525,53 @@ test('a remote coordinator remains a coordinator while its transcript is open', 
   await h.relay.call(T, 'threads.subscribe', { threadId: T, afterSeq: 0 });
   const update = h.published.find((n) => (n as { method: string }).method === 'thread.updated');
   assert.equal((update as { params: { thread: { coordinatorProjectId?: string } } }).params.thread.coordinatorProjectId, 'p_threadbear');
+});
+
+// The read tier (ADR 0002): a runner key that reads other Macs' threads may not
+// start or change anything there, and the refusal comes before the backend is asked.
+const READ_ONLY = /This Mac's key can read other Macs' threads but not start or change anything there\. Ask an agent here to use create_thread, which asks the main Mac\./;
+const writeCalls = (calls: Call[]) => calls.filter((c) => c.kind === 'mutation' || c.fn === 'relay:remoteAccounts' || c.fn === 'relay:remotePools' || c.fn === 'sync:remoteBody' || c.fn === 'relay:commandState');
+
+test('a reads-only runner key reads other Macs\' threads, and every write fails at once, before the backend', async () => {
+  const h = harness({ readsOnly: true });
+  const events = (await h.relay.call(T, 'threads.events', { threadId: T })) as { events: unknown[] };
+  assert.ok(events.events.length > 0, 'reads work');
+  const pic = { path: '/inbox/a.png' };
+  const writes: [string, () => Promise<unknown>][] = [
+    ['create', () => h.relay.create('mac-mini', { text: 'Start', permissionMode: 'ask' })],
+    ['create with pictures', () => h.relay.create('mac-mini', { text: 'Start', permissionMode: 'ask', images: [pic] })],
+    ['send', () => h.relay.call(T, 'threads.send', { threadId: T, text: 'hi' })],
+    ['send with pictures', () => h.relay.call(T, 'threads.send', { threadId: T, text: 'hi', images: [pic] })],
+    ['sendTo', () => h.relay.sendTo('mac-mini', T, 'hello')],
+    ['respond', () => h.relay.call(T, 'approvals.respond', { threadId: T, approvalId: 'ap9', decision: 'deny' })],
+    ['interrupt', () => h.relay.call(T, 'threads.interrupt', { threadId: T })],
+    ['archive', () => h.relay.call(T, 'threads.update', { threadId: T, archived: true })],
+    ['files.list', () => h.relay.listFolder('mac-mini', '/Users/b')],
+    ['year token', () => h.relay.yearToken('mac-mini', { accountId: 'claude-main' })],
+    ['move preview', () => h.relay.previewMove('mac-mini', { info: {} })],
+  ];
+  for (const [what, run] of writes) await assert.rejects(run(), READ_ONLY, what);
+  assert.deepEqual(writeCalls(h.calls), [], 'nothing reached the backend');
+  assert.equal(h.uploads.length, 0);
+});
+
+test('a reads-only runner key shows a tool whose output stays on the main Mac as a note, and does not ask for it', async () => {
+  const h = harness({ readsOnly: true });
+  await h.relay.call(T, 'threads.events', { threadId: T });
+  assert.deepEqual(await h.relay.call(T, 'threads.heldBody', { threadId: T, seq: 5 }), { state: 'withheld' });
+  assert.equal(h.calls.filter((c) => c.fn === 'sync:remoteBody').length, 0);
+  const sub = (await h.relay.call(T, 'threads.subscribe', { threadId: T, afterSeq: 0 })) as { events: { type: string; text?: string }[] };
+  const note = sub.events.find((e) => e.type === 'tool.result' && /reads other Macs' threads but not what their tools/.test(e.text ?? ''));
+  assert.ok(note, 'the tool row says why there is no output');
+  // The owner key still fetches it.
+  const owner = harness();
+  await owner.relay.call(T, 'threads.events', { threadId: T });
+  await owner.relay.call(T, 'threads.heldBody', { threadId: T, seq: 5 });
+  assert.equal(owner.calls.filter((c) => c.fn === 'sync:remoteBody').length, 1);
+});
+
+test('a reads-only runner key is told plainly that another Mac\'s logins are the main Mac\'s to read', async () => {
+  const h = harness({ readsOnly: true });
+  await assert.rejects(h.relay.logins('mac-mini'), /main Mac/);
+  assert.equal(h.calls.filter((c) => c.fn === 'relay:remoteAccounts' || c.fn === 'relay:remotePools').length, 0);
 });
