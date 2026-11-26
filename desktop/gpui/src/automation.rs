@@ -903,6 +903,15 @@ fn step(
         | "open-archived" | "error" | "mouse-button" | "copy-thread-id" | "menus" | "menu-item"
         | "app-menu" | "data-dir" | "share" | "signin" | "edit-message" | "message-words"
         | "refusal" | "appearance" | "resize" => shell_step(app, cmd, window, cx),
+        // Appearance's Custom accent from a script: the same colour the
+        // picker's hex field takes, `#rrggbb` or `rrggbb`. Anything else
+        // changes nothing, as in the field.
+        "accent-hex" => {
+            if let Some(colour) = threadbear_core::accent::parse_hex(text(cmd, "hex")) {
+                app.update(cx, |t, cx| t.set_custom_accent(colour, window, cx));
+            }
+            Ok(json!("ok"))
+        }
         "search" => {
             let words = text(cmd, "text").to_string();
             let search = app.read(cx).search.clone();

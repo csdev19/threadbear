@@ -84,12 +84,33 @@ pub enum Accent {
     Sky,
     Moss,
     Slate,
+    /// The colour the user typed in (`custom_accent`), kept on its own so a
+    /// preset and back brings it again.
+    Custom,
 }
 
 static ACCENT: AtomicU32 = AtomicU32::new(0);
 
+/// 0xrrggbb of the Custom accent, or this when none has been picked yet.
+const NO_CUSTOM: u32 = u32::MAX;
+static CUSTOM_ACCENT: AtomicU32 = AtomicU32::new(NO_CUSTOM);
+
 impl Accent {
-    pub const ALL: [Accent; 9] = [
+    pub const ALL: [Accent; 10] = [
+        Accent::System,
+        Accent::Fur,
+        Accent::Honey,
+        Accent::Berry,
+        Accent::Rose,
+        Accent::Plum,
+        Accent::Sky,
+        Accent::Moss,
+        Accent::Slate,
+        Accent::Custom,
+    ];
+
+    /// The dots with a colour of their own; Custom has a picker instead.
+    pub const PRESETS: [Accent; 9] = [
         Accent::System,
         Accent::Fur,
         Accent::Honey,
@@ -113,6 +134,7 @@ impl Accent {
             Accent::Sky => "sky",
             Accent::Moss => "moss",
             Accent::Slate => "slate",
+            Accent::Custom => "custom",
         }
     }
 
@@ -135,13 +157,16 @@ impl Accent {
             Accent::Sky => "Sky",
             Accent::Moss => "Moss",
             Accent::Slate => "Slate",
+            Accent::Custom => "Custom",
         }
     }
 
     /// The colour, or None for the system's (the Mac's accent, blue elsewhere).
+    /// Custom with no colour picked yet is the system's too.
     pub fn rgb(self) -> Option<u32> {
         match self {
             Accent::System => None,
+            Accent::Custom => custom_accent(),
             Accent::Fur => Some(0xd69454),
             Accent::Honey => Some(0xe0a33a),
             Accent::Berry => Some(0xc2414b),
@@ -152,6 +177,26 @@ impl Accent {
             Accent::Slate => Some(0x6b7280),
         }
     }
+}
+
+/// The Custom accent's colour, once one has been picked (0xrrggbb).
+pub fn custom_accent() -> Option<u32> {
+    Some(CUSTOM_ACCENT.load(Ordering::Relaxed)).filter(|c| *c != NO_CUSTOM)
+}
+
+/// Remembers the Custom colour without choosing it: launch reads the saved one
+/// before the accent itself is put on the windows.
+pub fn remember_custom_accent(rgb: Option<u32>) {
+    CUSTOM_ACCENT.store(
+        rgb.map_or(NO_CUSTOM, |c| c & 0x00ff_ffff),
+        Ordering::Relaxed,
+    );
+}
+
+/// Picks Custom in this colour and puts it on every window.
+pub fn set_custom_accent(rgb: u32, cx: &mut App) {
+    remember_custom_accent(Some(rgb));
+    set_accent_choice(Accent::Custom, cx);
 }
 
 pub fn accent_choice() -> Accent {
@@ -405,38 +450,85 @@ pub const COMPOSER_GAP: f32 = 10.;
 /// every switch after (the system's, the automation's `appearance`) keeps it.
 /// Popovers and menus get it lifted a little, as macOS's own menus are on dark.
 pub(crate) fn install_window_colours(cx: &mut App) {
-    use gpui_kit::component::Theme;
-    use std::rc::Rc;
-    let (light, dark) = window_backgrounds();
-    let hex = |c: Rgba| -> SharedString {
-        format!(
-            "#{:02x}{:02x}{:02x}",
-            (c.r * 255.).round() as u8,
-            (c.g * 255.).round() as u8,
-            (c.b * 255.).round() as u8
+    write_window_colours(cx);
+    refresh_system_accent(cx);
+    refresh_system_contrast(cx);
+    refresh_system_clock();
+}
+
+/// Settings > General > Appearance's Pure black: the dark look's window and
+/// sidebar #000000 and its popovers #111111 (t3code's dark theme), whenever
+/// dark shows, Dark or the system's at night. Light is as it was.
+static PURE_BLACK: AtomicBool = AtomicBool::new(false);
+
+pub fn pure_black() -> bool {
+    PURE_BLACK.load(Ordering::Relaxed)
+}
+
+/// The dark theme's background, sidebar and popover colours. Off puts back
+/// what `window_backgrounds` gives, as before it was ever on.
+fn dark_window_colours(pure_black: bool, system_dark: Rgba) -> (Rgba, Rgba) {
+    if pure_black {
+        (
+            srgb_rgba(0., 0., 0.),
+            srgb_rgba(17. / 255., 17. / 255., 17. / 255.),
         )
-        .into()
-    };
-    let lift = |c: Rgba, by: f32| Rgba {
+    } else {
+        (system_dark, lift(system_dark, 0.06))
+    }
+}
+
+fn lift(c: Rgba, by: f32) -> Rgba {
+    Rgba {
         r: c.r + (1. - c.r) * by,
         g: c.g + (1. - c.g) * by,
         b: c.b + (1. - c.b) * by,
         a: 1.,
-    };
+    }
+}
+
+fn hex_colour(c: Rgba) -> SharedString {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (c.r * 255.).round() as u8,
+        (c.g * 255.).round() as u8,
+        (c.b * 255.).round() as u8
+    )
+    .into()
+}
+
+/// Writes the window colours into the kit's light and dark theme configs. The
+/// next `Theme::change` (the system's, the automation's `appearance`, or
+/// `set_pure_black`) loads them.
+fn write_window_colours(cx: &mut App) {
+    use gpui_kit::component::Theme;
+    use std::rc::Rc;
+    let (light, system_dark) = window_backgrounds();
+    let (dark, dark_popover) = dark_window_colours(pure_black(), system_dark);
     let theme = Theme::global_mut(cx);
     for (config, background, popover) in [
         (&mut theme.light_theme, light, light),
-        (&mut theme.dark_theme, dark, lift(dark, 0.06)),
+        (&mut theme.dark_theme, dark, dark_popover),
     ] {
         let mut changed = (**config).clone();
-        changed.colors.background = Some(hex(background));
-        changed.colors.sidebar = Some(hex(background));
-        changed.colors.popover = Some(hex(popover));
+        changed.colors.background = Some(hex_colour(background));
+        changed.colors.sidebar = Some(hex_colour(background));
+        changed.colors.popover = Some(hex_colour(popover));
         *config = Rc::new(changed);
     }
-    refresh_system_accent(cx);
-    refresh_system_contrast(cx);
-    refresh_system_clock();
+}
+
+/// Turns Pure black on or off, live: the theme in use is loaded again, so the
+/// window and sidebar change at once, and the accent's warning is judged
+/// against the new background.
+pub fn set_pure_black(on: bool, cx: &mut App) {
+    if PURE_BLACK.swap(on, Ordering::Relaxed) == on {
+        return;
+    }
+    write_window_colours(cx);
+    let mode = gpui_kit::component::Theme::global(cx).mode;
+    gpui_kit::component::Theme::change(mode, None, cx);
+    bump_look();
 }
 
 /// Use AppKit's effective accessibility appearance where available, and
@@ -536,6 +628,8 @@ pub(crate) fn refresh_system_contrast(cx: &mut App) {
             dark,
             normal_kit: normal_kit.clone(),
         });
+        // The text on the accent asks more of the fill with it on.
+        refresh_system_accent(cx);
         if first && !enabled {
             return;
         }
@@ -694,13 +788,16 @@ fn contrast_colour(cx: &App, index: usize, fallback: Hsla) -> Hsla {
 struct SystemAccent {
     light: Rgba,
     dark: Rgba,
+    /// Increase Contrast, which asks more of the text on the fill
+    /// (`on_accent_text`).
+    contrast: bool,
 }
 impl Global for SystemAccent {}
 
 /// The kit's own accent colours, as they were before any accent was put on
 /// them: what a system accent goes back to where there's no system one to
 /// read (Windows, Linux).
-struct KitAccent([[Option<SharedString>; 4]; 2]);
+struct KitAccent([[Option<SharedString>; 5]; 2]);
 impl Global for KitAccent {}
 
 /// System Settings can change the accent while this app is behind it. Read
@@ -727,6 +824,7 @@ pub(crate) fn refresh_system_accent(cx: &mut App) {
                 c.ring.clone(),
                 c.primary_hover.clone(),
                 c.primary_active.clone(),
+                c.primary_foreground.clone(),
             ]
         });
         cx.set_global(KitAccent(saved));
@@ -738,7 +836,7 @@ pub(crate) fn refresh_system_accent(cx: &mut App) {
             let saved = cx.global::<KitAccent>().0.clone();
             let theme = Theme::global_mut(cx);
             let mode = theme.mode;
-            for (config, [primary, ring, hover, active]) in
+            for (config, [primary, ring, hover, active, foreground]) in
                 [&mut theme.light_theme, &mut theme.dark_theme]
                     .into_iter()
                     .zip(saved)
@@ -748,13 +846,18 @@ pub(crate) fn refresh_system_accent(cx: &mut App) {
                 changed.colors.ring = ring;
                 changed.colors.primary_hover = hover;
                 changed.colors.primary_active = active;
+                changed.colors.primary_foreground = foreground;
                 *config = Rc::new(changed);
             }
             Theme::change(mode, None, cx);
         }
         return;
     };
-    let accent = SystemAccent { light, dark };
+    let accent = SystemAccent {
+        light,
+        dark,
+        contrast: increase_contrast(cx),
+    };
     if cx.try_global::<SystemAccent>() == Some(&accent) {
         return;
     }
@@ -775,6 +878,12 @@ pub(crate) fn refresh_system_accent(cx: &mut App) {
         let mut changed = (**config).clone();
         changed.colors.primary = Some(hex.clone());
         changed.colors.ring = Some(hex);
+        changed.colors.primary_foreground = Some(
+            threadbear_core::accent::format_hex(
+                threadbear_core::accent::text_on_accent(rgba_u32(color), accent.contrast).rgb(),
+            )
+            .into(),
+        );
         let shade = |toward: f32| -> SharedString {
             let mix = |c: f32| ((c * 0.9 + toward * 0.1) * 255.).round() as u8;
             format!(
@@ -841,6 +950,12 @@ fn window_backgrounds() -> (Rgba, Rgba) {
     }
     #[cfg(not(target_os = "macos"))]
     fallback
+}
+
+/// 0xrrggbb of an opaque colour.
+pub(crate) fn rgba_u32(c: Rgba) -> u32 {
+    let byte = |v: f32| (v * 255.).round().clamp(0., 255.) as u32;
+    byte(c.r) << 16 | byte(c.g) << 8 | byte(c.b)
 }
 
 fn srgb_rgba(r: f32, g: f32, b: f32) -> Rgba {
@@ -1054,6 +1169,22 @@ pub fn control_accent(cx: &App) -> Hsla {
         });
     }
     pick(cx, srgb(0.04, 0.52, 1.0, 1.0), srgb(0.0, 0.48, 1.0, 1.0))
+}
+
+/// The text on a `control_accent` fill: white when it reaches 3:1 against
+/// the fill (4.5:1 with Increase Contrast on), near-black otherwise, so a
+/// light accent such as Honey never leaves white words nobody can read.
+pub fn on_accent_text(cx: &App) -> Hsla {
+    let fill = rgba_u32(Rgba::from(control_accent(cx)));
+    rgb_hsla(threadbear_core::accent::text_on_accent(fill, increase_contrast(cx)).rgb())
+}
+
+/// Whether the accent in use is under 3:1 against the window's background in
+/// the look showing now, so its ticks and outlines are hard to see.
+pub fn accent_hard_to_see(cx: &App) -> bool {
+    let accent = rgba_u32(Rgba::from(control_accent(cx)));
+    let background = rgba_u32(Rgba::from(cx.theme().background));
+    threadbear_core::accent::hard_to_see(accent, background)
 }
 
 /// NSColor.linkColor, as macOS 27 gives it in sRGB: a lighter blue than the
@@ -1454,6 +1585,46 @@ mod font_tests {
         for font in Font::ALL {
             assert_eq!(Font::from_name(font.name()), font);
         }
+    }
+}
+
+#[cfg(test)]
+mod custom_theme_tests {
+    use super::{dark_window_colours, hex_colour, lift, remember_custom_accent, srgb_rgba, Accent};
+
+    #[test]
+    fn custom_is_a_name_of_its_own_and_unknown_ones_stay_the_systems() {
+        assert_eq!(Accent::from_name("custom"), Accent::Custom);
+        assert_eq!(Accent::Custom.name(), "custom");
+        assert_eq!(Accent::Custom.title(), "Custom");
+        assert_eq!(Accent::from_name("newer-build"), Accent::System);
+        for accent in Accent::ALL {
+            assert_eq!(Accent::from_name(accent.name()), accent);
+        }
+        assert!(!Accent::PRESETS.contains(&Accent::Custom));
+        assert_eq!(Accent::PRESETS.len() + 1, Accent::ALL.len());
+    }
+
+    #[test]
+    fn custom_has_a_colour_only_once_one_is_picked_and_keeps_it() {
+        remember_custom_accent(None);
+        assert_eq!(Accent::Custom.rgb(), None);
+        remember_custom_accent(Some(0xe8006a));
+        assert_eq!(Accent::Custom.rgb(), Some(0xe8006a));
+        // A preset's own colour is untouched by it.
+        assert_eq!(Accent::Plum.rgb(), Some(0x8a5cc2));
+        remember_custom_accent(None);
+    }
+
+    #[test]
+    fn pure_black_is_black_and_off_is_the_systems_dark_lifted() {
+        let system = srgb_rgba(30. / 255., 30. / 255., 30. / 255.);
+        let (background, popover) = dark_window_colours(true, system);
+        assert_eq!(hex_colour(background).as_ref(), "#000000");
+        assert_eq!(hex_colour(popover).as_ref(), "#111111");
+        let (background, popover) = dark_window_colours(false, system);
+        assert_eq!(hex_colour(background).as_ref(), "#1e1e1e");
+        assert_eq!(popover, lift(system, 0.06));
     }
 }
 

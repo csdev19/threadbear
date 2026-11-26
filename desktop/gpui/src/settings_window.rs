@@ -17,6 +17,7 @@ use crate::spinner::Spinner;
 use crate::{call, icons, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
@@ -228,6 +229,10 @@ pub(crate) struct SettingsWindow {
     keyboard: keyboard::KeyboardDraft,
     /// The ding's volume (Notifications).
     volume: Entity<SliderState>,
+    /// The Custom accent's picker (Appearance), and whether it was open at
+    /// the last change, to tell it opening.
+    accent_picker: Entity<ColorPickerState>,
+    accent_picker_open: bool,
     scroll: ScrollHandle,
     /// The list of sections down the left: up and down move through them
     /// while it has the keyboard, which it has as the window opens and
@@ -414,6 +419,47 @@ impl SettingsWindow {
                 })
                 .ok();
         }));
+        // The Custom accent's picker. Every valid colour, from the palette, the
+        // sliders or the hex field (typed or pasted, with or without the #),
+        // is applied and saved as it comes; anything else changes nothing.
+        let picker_start = style::custom_accent()
+            .unwrap_or_else(|| style::rgba_u32(Rgba::from(style::control_accent(cx))));
+        let accent_picker = cx.new(|cx| {
+            ColorPickerState::new(window, cx).default_value(Hsla::from(rgb(picker_start)))
+        });
+        subs.push(cx.subscribe_in(
+            &accent_picker,
+            window,
+            |this, _, ev: &ColorPickerEvent, window, cx| {
+                if let ColorPickerEvent::Change(Some(colour)) = ev {
+                    this.apply_custom_accent(style::rgba_u32(Rgba::from(*colour)), window, cx);
+                }
+            },
+        ));
+        let hex_input = accent_picker.read(cx).hex_input().clone();
+        subs.push(cx.subscribe_in(
+            &hex_input,
+            window,
+            |this, input, ev: &InputEvent, window, cx| {
+                if matches!(ev, InputEvent::Change) {
+                    let text = input.read(cx).value();
+                    if let Some(colour) = threadbear_core::accent::parse_hex(text.as_str()) {
+                        this.apply_custom_accent(colour, window, cx);
+                    }
+                }
+            },
+        ));
+        // Opening it takes Custom, with the colour kept from before; with
+        // none yet it starts on the colour in use.
+        subs.push(
+            cx.observe_in(&accent_picker, window, |this, picker, window, cx| {
+                let open = picker.read(cx).is_open();
+                if open && !this.accent_picker_open {
+                    this.picker_opened(&picker, window, cx);
+                }
+                this.accent_picker_open = open;
+            }),
+        );
         let mut this = SettingsWindow {
             app,
             client,
@@ -431,6 +477,8 @@ impl SettingsWindow {
             devices: Default::default(),
             keyboard: Default::default(),
             volume,
+            accent_picker,
+            accent_picker_open: false,
             scroll: ScrollHandle::new(),
             sidebar_focus: cx.focus_handle(),
             _subs: subs,
@@ -1033,6 +1081,77 @@ impl SettingsWindow {
         sections
     }
 
+    /// A colour for the Custom accent, from the picker or a script: applied
+    /// and saved at once, unless it's what's already showing.
+    pub(crate) fn apply_custom_accent(
+        &mut self,
+        rgb: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if style::accent_choice() == style::Accent::Custom && style::custom_accent() == Some(rgb) {
+            return;
+        }
+        self.app
+            .update(cx, |app, cx| app.set_custom_accent(rgb, window, cx))
+            .ok();
+        cx.notify();
+    }
+
+    /// The picker just opened: if a custom colour is kept, pick Custom again
+    /// at once, and show the kept colour (or the one in use) in the picker.
+    fn picker_opened(
+        &mut self,
+        picker: &Entity<ColorPickerState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let kept = style::custom_accent();
+        let shown = kept.unwrap_or_else(|| style::rgba_u32(Rgba::from(style::control_accent(cx))));
+        picker.update(cx, |p, cx| p.set_value(Hsla::from(rgb(shown)), window, cx));
+        if kept.is_some() && style::accent_choice() != style::Accent::Custom {
+            self.app
+                .update(cx, |app, cx| {
+                    app.set_accent(style::Accent::Custom, window, cx)
+                })
+                .ok();
+        }
+    }
+
+    /// The Custom dot: the kept colour once there is one, a plain ring with a
+    /// plus before. It's the picker's own trigger, so a press opens it.
+    fn custom_dot(&self, on: bool, cx: &App) -> AnyElement {
+        const TIP: &str = "Pick your own accent colour";
+        const FILLED: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="black"/></svg>"#;
+        const EMPTY: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10.8"/><path d="M12 7.5v9M7.5 12h9"/></svg>"#;
+        let (data, colour) = match style::custom_accent() {
+            Some(hex) => (FILLED, Hsla::from(rgb(hex))),
+            None => (EMPTY, style::secondary_text(cx)),
+        };
+        let swatch = Icon::default()
+            .data(data)
+            .with_size(px(16.))
+            .text_color(colour);
+        div()
+            .id("settings-accent-custom")
+            .test_support()
+            .a11y_role(Role::Button)
+            .aria_label(TIP)
+            .tip(TIP)
+            .cursor_pointer()
+            .size(px(24.))
+            .rounded_full()
+            .border(px(2.))
+            .border_color(if on {
+                style::primary_opacity(cx, 0.6)
+            } else {
+                gpui_kit::transparent_black()
+            })
+            .p(px(2.))
+            .child(ColorPicker::new(&self.accent_picker).icon(swatch))
+            .into_any_element()
+    }
+
     /// The appearance is this app's own, so it's here while the runner's away
     /// too. Light or dark as pictures, then the accent, spacing, text size
     /// and font (Mike picked these from three directions, 17 Nov). Each
@@ -1040,6 +1159,7 @@ impl SettingsWindow {
     fn appearance_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let app = self.app.clone();
         let current = style::appearance();
+        let pure_black = style::pure_black();
         let looks = h_flex()
             .gap(px(14.))
             .children(style::Appearance::ALL.into_iter().map(|choice| {
@@ -1049,25 +1169,55 @@ impl SettingsWindow {
                     style::Appearance::Light => "Always light, whatever the system is set to",
                     style::Appearance::Dark => "Always dark, whatever the system is set to",
                 };
-                look_tile(choice, choice == current, tip, cx, move |_, window, cx| {
-                    if let Some(app) = app.upgrade() {
-                        app.update(cx, |app, cx| app.set_appearance(choice, window, cx));
-                    }
-                })
+                look_tile(
+                    choice,
+                    choice == current,
+                    pure_black,
+                    tip,
+                    cx,
+                    move |_, window, cx| {
+                        if let Some(app) = app.upgrade() {
+                            app.update(cx, |app, cx| app.set_appearance(choice, window, cx));
+                        }
+                    },
+                )
             }));
         let accent_now = style::accent_choice();
-        let accents =
-            h_flex()
-                .gap(px(8.))
-                .items_center()
-                .children(style::Accent::ALL.into_iter().map(|choice| {
-                    let app = app.clone();
-                    accent_dot(choice, choice == accent_now, cx, move |_, window, cx| {
-                        if let Some(app) = app.upgrade() {
-                            app.update(cx, |app, cx| app.set_accent(choice, window, cx));
-                        }
-                    })
-                }));
+        let accents = h_flex()
+            .gap(px(8.))
+            .items_center()
+            .children(style::Accent::PRESETS.into_iter().map(|choice| {
+                let app = app.clone();
+                accent_dot(choice, choice == accent_now, cx, move |_, window, cx| {
+                    if let Some(app) = app.upgrade() {
+                        app.update(cx, |app, cx| app.set_accent(choice, window, cx));
+                    }
+                })
+            }))
+            .child(self.custom_dot(accent_now == style::Accent::Custom, cx));
+        let pure_black_switch = self.switch(
+            "settings-pure-black",
+            pure_black,
+            "Use a black background whenever Threadbear is dark",
+            cx,
+            |this, on, cx| {
+                this.app
+                    .update(cx, |app, cx| app.set_pure_black(on, cx))
+                    .ok();
+            },
+        );
+        let accent_warning = if style::accent_hard_to_see(cx) {
+            div()
+                .id("settings-accent-warning")
+                .px(px(ROW_INSET))
+                .pb(px(8.))
+                .text_size(px(12.))
+                .text_color(style::needs_you_text(cx))
+                .child("Hard to see on this background")
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
         let compact = style::compact();
         let spacing = segmented(
             [
@@ -1181,7 +1331,9 @@ impl SettingsWindow {
                     .pb(px(10.))
                     .child(looks)
                     .into_any_element(),
+                row("Pure black", pure_black_switch, cx),
                 row("Accent", accents, cx),
+                accent_warning,
                 row("Spacing", spacing, cx),
                 row("Text size", text_size, cx),
                 row("Font", font, cx),
@@ -1959,6 +2111,7 @@ fn row_with(label: AnyElement, control: AnyElement, _cx: &App) -> AnyElement {
 fn look_tile(
     choice: style::Appearance,
     on: bool,
+    pure_black: bool,
     tip: &'static str,
     cx: &App,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -1966,7 +2119,10 @@ fn look_tile(
     let ring = style::control_accent(cx);
     let tint = style::control_accent(cx);
     let half = |dark: bool| {
-        let (side, main, line) = if dark {
+        let (side, main, line) = if dark && pure_black {
+            // Pure black previews black.
+            (rgb(0x000000), rgb(0x000000), rgb(0x3a3a3a))
+        } else if dark {
             (rgb(0x262626), rgb(0x1c1c1c), rgb(0x4a4a4a))
         } else {
             (rgb(0xececec), rgb(0xffffff), rgb(0xcfcfcf))
@@ -2275,6 +2431,10 @@ impl SettingsWindow {
             "tab": self.tab.name(),
             "appearance": style::appearance().name(),
             "accent": style::accent_choice().name(),
+            "accentCustom": style::custom_accent().map(threadbear_core::accent::format_hex),
+            "accentWarning": style::accent_hard_to_see(cx),
+            "pureBlack": style::pure_black(),
+            "windowBackground": threadbear_core::accent::format_hex(style::rgba_u32(gpui_kit::Rgba::from(cx.theme().background))),
             "compact": style::compact(),
             "font": style::font_choice().name(),
             "defaultFolder": settings.as_ref().map(|s| s.default_cwd.clone()),

@@ -560,7 +560,9 @@ fn text_button(
         .cursor_pointer()
         .text_size(px(size::DETAIL))
         .font_weight(FontWeight::MEDIUM)
-        .when(filled, |d| d.bg(accent).text_color(gpui_kit::white()))
+        .when(filled, |d| {
+            d.bg(accent).text_color(style::on_accent_text(cx))
+        })
         .when(!filled, |d| {
             d.border(gpui_kit::px(0.5))
                 .border_color(style::button_edge(cx))

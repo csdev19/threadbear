@@ -58,6 +58,13 @@ pub struct Saved {
     pub appearance: Option<String>,
     /// Appearance's accent, `style::Accent`'s name. None is the system's.
     pub accent: Option<String>,
+    /// `accentCustom`: the Custom accent's colour, "#rrggbb". Kept apart
+    /// from `accent`, so a preset and back brings it again. None until one
+    /// is picked.
+    pub accent_custom: Option<String>,
+    /// `pureBlack`: Appearance's Pure black switch, a black dark look.
+    /// Some(true) only; None is off.
+    pub pure_black: Option<bool>,
     /// Appearance's Spacing: Some(true) is Compact. None is Roomy.
     pub compact: Option<bool>,
     /// Appearance's Font, `style::Font`'s name. None is the system's.
@@ -373,6 +380,24 @@ mod tests {
                 height: 800.
             })
         );
+    }
+
+    #[test]
+    fn the_custom_accent_and_pure_black_use_their_own_keys() {
+        let path = temp_file("custom-theme");
+        let mut s = Settings::load_from(path.clone());
+        s.saved.accent = Some("custom".into());
+        s.saved.accent_custom = Some("#e8006a".into());
+        s.saved.pure_black = Some(true);
+        s.save();
+        let text = std::fs::read_to_string(&path).unwrap();
+        for key in ["\"accentCustom\": \"#e8006a\"", "\"pureBlack\": true"] {
+            assert!(text.contains(key), "{key} in {text}");
+        }
+        let read = Settings::load_from(path);
+        assert_eq!(read.saved.accent.as_deref(), Some("custom"));
+        assert_eq!(read.saved.accent_custom.as_deref(), Some("#e8006a"));
+        assert_eq!(read.saved.pure_black, Some(true));
     }
 
     #[test]

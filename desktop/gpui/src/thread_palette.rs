@@ -187,7 +187,7 @@ impl Composer {
             style::accent(cx).opacity(0.75),
             style::primary_opacity(cx, 0.05),
         );
-        let text = if on { gpui_kit::white() } else { fg };
+        let text = if on { style::on_accent_text(cx) } else { fg };
         let tip: SharedString = format!("Put a link to \"{title}\" in the message (Return)").into();
         let picked = thread.clone();
         h_flex()

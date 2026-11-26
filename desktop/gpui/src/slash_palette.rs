@@ -625,6 +625,7 @@ impl Composer {
             style::accent(cx).opacity(0.75),
             style::primary_opacity(cx, 0.05),
         );
+        let on_accent = style::on_accent_text(cx);
         let picked = command.clone();
         div()
             .id(SharedString::from(format!("slash-row-{name}")))
@@ -637,7 +638,7 @@ impl Composer {
             .cursor_pointer()
             .text_size(px(size::LABEL + 1.))
             .truncate()
-            .when(on, |s| s.bg(accent).text_color(gpui_kit::white()))
+            .when(on, |s| s.bg(accent).text_color(on_accent))
             .when(!on, |s| s.text_color(fg).hover(move |s| s.bg(hover)))
             .tip(tip)
             // Picked on the first click, at once; a second click on the
