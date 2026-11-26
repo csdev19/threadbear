@@ -666,7 +666,10 @@ the asking thread's row in the backend (`relay:remoteThread`) and sends to
 the runner id it has there, so an asking thread that moved to another Mac
 since it asked still gets the reply; the asking Mac recorded when the job was
 started is only the first guess, used if the backend has no row or can't be
-read. The reply is not the job's last word:
+read. If the backend now says the asking thread is on the main Mac itself,
+the reply is delivered locally, as the watch delivers any far report to a
+thread here (queued, held to the watch's ceiling), not sent through the relay
+to itself. The reply is not the job's last word:
 later turns are not sent. It is sent once the turn's last row is the
 assistant's words and the reply has stayed the same for a second look; a
 turn that ends on a tool call goes after staying the same for two minutes.

@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import { atomicWriteFileSync } from './fsutil.ts';
 import { AGENT_MESSAGE_PREFIX, type PermissionMode } from './protocol.ts';
 import { ceilingMode } from './runner/ceiling.ts';
-import { wasNotSent } from './relay.ts';
+import { notSent, wasNotSent } from './relay.ts';
 
 type Rec = {
   threadId: string;
@@ -387,7 +387,15 @@ export class FarReports {
         // thread counts, so a lost acknowledgement can't repeat without end.
         rec.sends.push(now);
         try {
-          await job.send(to, rec.starter, jobReportText({ job: job.name, threadId: rec.threadId, runnerName: rec.runnerName, reply, mayRepeat: rec.maybeSent, movedOn }));
+          const text = jobReportText({ job: job.name, threadId: rec.threadId, runnerName: rec.runnerName, reply, mayRepeat: rec.maybeSent, movedOn });
+          // The asking thread is on this Mac: as any far report to a thread here, not through the relay to itself.
+          if (to === this.deps.self()) {
+            try {
+              this.deps.deliver(rec.starter, text, ceilingMode(rec.by));
+            } catch (e) {
+              throw notSent(e);
+            }
+          } else await job.send(to, rec.starter, text);
         } catch (e) {
           const failedAt = rec.failedAt ?? now;
           if (now - failedAt > JOB_GIVE_UP_MS) {
