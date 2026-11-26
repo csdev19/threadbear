@@ -1729,8 +1729,9 @@ export class Relay {
         return {};
       }
       case 'threads.markSeen': {
-        // A write on the other runner and the backend: only when there's something unread.
-        if (this.find(threadId)?.unread) {
+        // A write on the other runner and the backend: only when there's something unread,
+        // and not on a reads-only key (unread belongs to the owning Mac).
+        if (this.find(threadId)?.unread && (!this.deps.owner || this.deps.owner())) {
           await this.command(w.runnerId, threadId, 'update', { markSeen: true }).then(
             () => this.remember(threadId, { unread: false }),
             () => undefined,
