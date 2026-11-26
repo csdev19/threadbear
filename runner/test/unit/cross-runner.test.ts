@@ -569,7 +569,14 @@ test('from the phone: a folder this Mac would only reach by a guess is refused, 
   f.dirs.add(`${HOME}/x`);
   f.rows.set('req-p1', phoneRow({ target: 'main', cwd: '/Users/laptop/x' }));
   f.setOpen('req-p1');
-  await assert.rejects(f.cross.startFromPhone('c', 'req-p1', 'doc1'), (e: Error) => e.message === "That request's folder is /Users/laptop/x, which isn't a folder on the main Mac as named. Answer it on the Mac, where the card shows where it would start.");
+  await assert.rejects(f.cross.startFromPhone('c', 'req-p1', 'doc1'), (e: Error) => e.message === "The folder the main Mac would start in isn't the folder the phone showed (/Users/laptop/x). Answer it on the Mac, where the card shows where it would start.");
+  // The same swap for a Linux home, and for a path with a trailing slash that still resolves elsewhere.
+  const lin = fake({ owner: true, phoneStarts: true });
+  lin.dirs.add(`${HOME}/x`);
+  lin.rows.set('req-p1', phoneRow({ target: 'main', cwd: '/home/laptop/x/' }));
+  lin.setOpen('req-p1');
+  await assert.rejects(lin.cross.startFromPhone('c', 'req-p1', 'doc1'), /isn't the folder the phone showed/);
+  assert.deepEqual(lin.log, []);
   // Nothing claimed, started or answered: it stays pending for the Mac's card.
   assert.deepEqual(f.log, []);
   assert.equal(f.rows.get('req-p1')!.state, 'pending');
@@ -621,4 +628,19 @@ test('from the phone: a request with no mode starts with full access, and one wi
   m.setOpen('req-p1');
   await m.cross.answer('c', 'req-p1', true, undefined, (await m.cross.get('c', 'req-p1')).fingerprint);
   assert.equal('permissionMode' in JSON.parse(m.log.find((l) => l.startsWith('here '))!.slice('here '.length)), false);
+});
+
+test('from the phone: a folder named with ~ or a trailing slash is the folder it names, and starts there', MAC_FOLDERS, async () => {
+  for (const [cwd, started] of [['~/code/threadbear', `${HOME}/code/threadbear`], ['~', HOME], ['/opt/work/', '/opt/work'], [`${HOME}/code/threadbear`, `${HOME}/code/threadbear`]] as const) {
+    const f = fake({ owner: true, phoneStarts: true });
+    f.rows.set('req-p1', phoneRow({ target: 'main', cwd }));
+    f.setOpen('req-p1');
+    await f.cross.startFromPhone('c', 'req-p1', 'doc1');
+    assert.equal(JSON.parse(f.log.find((l) => l.startsWith('here '))!.slice('here '.length)).cwd, started, cwd);
+  }
+  // ~/x with no such folder under this home is the decline path, not this refusal.
+  const g = fake({ owner: true, phoneStarts: true });
+  g.rows.set('req-p1', phoneRow({ target: 'main', cwd: '~/code/nowhere' }));
+  g.setOpen('req-p1');
+  await assert.rejects(g.cross.startFromPhone('c', 'req-p1', 'doc1'), /isn't a folder on this Mac/);
 });

@@ -487,11 +487,14 @@ runner that's this one is the usual create.
   since the phone showed it."), as is one naming a Mac it doesn't know
   (it is never started on the main Mac instead; one naming the main Mac
   itself is fine). For a request that starts on the main Mac itself, a
-  filed `cwd` must also be a folder there exactly as named: when the Mac
-  would reach another place (a missing `/Users/laptop/x` read under the
-  main Mac's home as `/Users/<its home>/x`), the command is refused ("That
-  request's folder is <cwd>, which isn't a folder on the main Mac as
-  named. Answer it on the Mac, where the card shows where it would
+  filed `cwd` must also be the folder the phone showed, read on that Mac:
+  `~` or `~/...` is the main Mac's home, an absolute path is cleaned up (a
+  trailing slash doesn't matter), and both it and the folder the Mac would
+  start in are compared by real path (links followed). When the Mac would
+  reach another place (a missing `/Users/laptop/x` read under the main
+  Mac's home as `/Users/<its home>/x`), the command is refused ("The
+  folder the main Mac would start in isn't the folder the phone showed
+  (<cwd>). Answer it on the Mac, where the card shows where it would
   start.") and nothing is claimed or started, so the request stays pending
   for the Mac's card, which shows the place. A `cwd` that isn't a folder
   there at all stays the `missingFolder` decline below. Then it starts it
