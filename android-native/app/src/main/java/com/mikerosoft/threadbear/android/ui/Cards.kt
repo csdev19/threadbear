@@ -231,7 +231,7 @@ fun StartRequestCard(vm: ThreadViewModel, card: PendingApproval.Approval, tapped
             "Asked by ${r.asking} (thread ${r.threadId})", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         )
         val details = listOfNotNull(
-            r.cwd?.let { "Folder" to it }, r.permissionMode?.let { "Permission mode" to it }, r.model?.let { "Model" to it }, r.effort?.let { "Effort" to it },
+            r.cwd?.let { "Folder" to it }, "Permission mode" to r.permissionLine, r.model?.let { "Model" to it }, r.effort?.let { "Effort" to it },
         )
         for ((label, value) in details) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
