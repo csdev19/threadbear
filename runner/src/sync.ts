@@ -1498,6 +1498,8 @@ export type PocketCardInput = { title: string; text: string; place?: string; ico
 // A request for a thread on another runner (convex/relay.ts fileRequest).
 export type RunnerRequestInput = { text: string; title?: string; cwd?: string; model?: string; effort?: string; permissionMode?: string; why?: string };
 export type RunnerRequestRow = RunnerRequestInput & {
+  job?: string;
+  params?: Record<string, string>;
   docId: string;
   requestId: string;
   runnerId: string;

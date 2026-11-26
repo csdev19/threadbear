@@ -284,6 +284,19 @@ export class CrossRunner {
     // Only while its card is still open: one that expired or was answered
     // from the phone has an agent that's no longer waiting.
     if ((await this.deps.openCard(threadId)) !== approvalId) throw bad('That request has closed: its thread is no longer waiting for it.');
+    // A job request has no text and no permission mode of its own: the job
+    // decides them. Until the job starter exists, a card must never start it
+    // (an empty thread with no mode is Full access), so it is denied.
+    if (allow && row.job !== undefined) {
+      const reason = 'Job requests are started by the job starter, not from a card.';
+      await this.deps.respondThere(threadId, approvalId, 'deny', reason);
+      if (reclaim) {
+        await backend.decideRequest({ requestId: approvalId, docId: row.docId, state: 'pending' });
+        this.lostClaims.delete(approvalId);
+      }
+      await backend.decideRequest({ requestId: approvalId, docId: row.docId, state: 'denied' }).catch(() => {});
+      throw bad(`${reason} Nothing was started.`);
+    }
     if (!allow) {
       // Our lost claim goes back first: only a pending request can be declined.
       if (reclaim) {
