@@ -78,7 +78,7 @@ export function fillBrief(brief: string, values: Record<string, string>, params:
   return brief.replace(PLACEHOLDER, (whole, name: string) => (has(params, name) && has(values, name) ? values[name]! : whole));
 }
 
-type Stage = 'claim' | 'start' | 'allow' | 'deny';
+type Stage = 'claim' | 'check' | 'start' | 'allow' | 'deny';
 // `claimed`: the row is (or was) held by a claim, so its deny goes straight from claimed (jobStart).
 type Work = { row: JobRequestRow; stage: Stage; claim: string; claimed?: boolean; text?: string; mode?: string; target?: RunnerRef; result?: { runnerId: string; runnerName: string; threadId: string }; reason?: string };
 
@@ -131,34 +131,40 @@ export class JobStarter {
     }
   }
 
-  // Decides what a request is to become. Nothing is claimed until it is a start.
-  private async begin(row: JobRequestRow): Promise<void> {
+  // The checks a request must pass, against the job and the runners as they are now: a deny
+  // reason, "wait" for a Mac that is offline for now, or the start it is to become.
+  private async check(row: JobRequestRow): Promise<{ deny: string } | 'wait' | { text: string; mode: JobMode; target: RunnerRef }> {
     const backend = this.deps.backend();
-    if (!backend) return;
-    const deny = (reason: string) => this.run(this.remember({ row, stage: 'deny', claim: '', reason }));
+    if (!backend) return 'wait';
     // The asker's card stopped waiting after REQUEST_WAIT_MIN minutes; nothing starts after that, whether or not the target is online.
-    if (this.deps.now() - row.createdAt > REQUEST_WAIT_MIN * 60_000) return deny(`The request waited longer than its asking thread waits (${REQUEST_WAIT_MIN} minutes), so nothing was started.`);
+    if (this.deps.now() - row.createdAt > REQUEST_WAIT_MIN * 60_000) return { deny: `The request waited longer than its asking thread waits (${REQUEST_WAIT_MIN} minutes), so nothing was started.` };
     const job = (await backend.jobsList()).find((j) => j.name === row.job);
-    if (!job) return deny(`There is no job "${row.job}" any more, so nothing was started.`);
+    if (!job) return { deny: `There is no job "${row.job}" any more, so nothing was started.` };
     // The job's own target, as the request was filed for, and only as an id.
-    if (row.target !== job.target) return deny(`The request names a target that isn't the job's own (the job changed since it was filed), so nothing was started.`);
+    if (row.target !== job.target) return { deny: `The request names a target that isn't the job's own (the job changed since it was filed), so nothing was started.` };
     const target = (await this.deps.runners()).find((r) => r.id === job.target);
-    if (!target) return deny(`The job "${job.name}" runs on the runner with id ${job.target}, and no runner with that id is known, so nothing was started.`);
-    if (!(JOB_MODES as readonly string[]).includes(job.mode)) return deny(`The job "${job.name}" has a permission mode this runner doesn't know, so nothing was started.`);
+    if (!target) return { deny: `The job "${job.name}" runs on the runner with id ${job.target}, and no runner with that id is known, so nothing was started.` };
+    if (!(JOB_MODES as readonly string[]).includes(job.mode)) return { deny: `The job "${job.name}" has a permission mode this runner doesn't know, so nothing was started.` };
     const names = Object.keys(job.params);
     const given = Object.keys(row.params ?? {});
-    if (names.length !== given.length || !names.every((n) => has(row.params, n) && typeof row.params[n] === 'string')) return deny(`The request's parameters don't fit the job "${job.name}" any more, so nothing was started.`);
+    if (names.length !== given.length || !names.every((n) => has(row.params, n) && typeof row.params[n] === 'string')) return { deny: `The request's parameters don't fit the job "${job.name}" any more, so nothing was started.` };
     // The values again, against the job as it is now: the owner may have changed it since the request was filed.
-    if (valuesProblem(job, row.params) !== null) return deny(`The request's values don't fit the job "${job.name}" any more, so nothing was started.`);
+    if (valuesProblem(job, row.params) !== null) return { deny: `The request's values don't fit the job "${job.name}" any more, so nothing was started.` };
     // Left pending for a Mac that is only away for now; denied once it has been too long.
     if (!target.self && target.online === false) {
-      if (this.deps.now() - row.createdAt < OFFLINE_WAIT_MS) return;
-      return deny(`${target.name} is offline, so nothing was started.`);
+      if (this.deps.now() - row.createdAt < OFFLINE_WAIT_MS) return 'wait';
+      return { deny: `${target.name} is offline, so nothing was started.` };
     }
     // The job's mode goes on as it is, a plan too: relay.create sends Plan to another Mac in a way an older runner reads as Ask (remoteCreateMode).
-    const mode = job.mode as JobMode;
-    const text = jobHeader(job, row) + fillBrief(job.brief, row.params, job.params);
-    await this.run(this.remember({ row, stage: 'claim', claim: crypto.randomUUID(), text, mode, target }));
+    return { text: jobHeader(job, row) + fillBrief(job.brief, row.params, job.params), mode: job.mode as JobMode, target };
+  }
+
+  // Decides what a request is to become. Nothing is claimed until it is a start.
+  private async begin(row: JobRequestRow): Promise<void> {
+    const got = await this.check(row);
+    if (got === 'wait') return;
+    if ('deny' in got) return this.run(this.remember({ row, stage: 'deny', claim: '', reason: got.deny }));
+    await this.run(this.remember({ row, stage: 'claim', claim: crypto.randomUUID(), ...got }));
   }
 
   private remember(w: Work): Work {
@@ -188,7 +194,20 @@ export class JobStarter {
           throw e;
         }
         w.claimed = true;
-        w.stage = 'start';
+        w.stage = 'check';
+      } else if (w.stage === 'check') {
+        // Checked again before anything is created: a claim that was retried may be late, and the job may have changed since.
+        const got = await this.check(row);
+        if (got === 'wait') return;
+        if ('deny' in got) {
+          w.reason = got.deny;
+          w.stage = 'deny';
+        } else {
+          w.text = got.text;
+          w.mode = got.mode;
+          w.target = got.target;
+          w.stage = 'start';
+        }
       } else if (w.stage === 'start') {
         const { target } = w;
         if (!target || w.text === undefined || w.mode === undefined) return this.done(w);

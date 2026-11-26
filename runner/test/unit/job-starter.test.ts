@@ -363,6 +363,59 @@ test('a claim whose answer was lost is asked again with the same claim, and star
   assert.equal(claims.length, 2);
 });
 
+test('a claim that threw, then the job lost the requested repo: the next tick denies from claimed and never creates', async () => {
+  const req = jobRequest();
+  const opts = { failClaim: 1, jobs: [JOB] };
+  const f = fake([req], opts);
+  await f.starter.tick();
+  assert.equal(f.created.length, 0);
+  opts.jobs = [{ ...JOB, repos: ['someone/else'] }];
+  await f.starter.tick();
+  assert.equal(f.created.length, 0);
+  assert.equal(f.state.get(req.requestId)!.state, 'denied');
+  assert.ok(f.log.includes(`decide ${req.requestId} denied jobStart`));
+});
+
+test('a claim that threw, then the request aged past the wait: the next tick denies from claimed and never creates', async () => {
+  const req = jobRequest();
+  const opts = { failClaim: 1, now: 1000 + 59 * 60_000 };
+  const f = fake([req], opts);
+  await f.starter.tick();
+  assert.equal(f.state.get(req.requestId)!.state, 'claimed');
+  opts.now = 1000 + 61 * 60_000;
+  await f.starter.tick();
+  assert.equal(f.created.length, 0);
+  assert.equal(f.state.get(req.requestId)!.state, 'denied');
+  assert.ok(f.log.includes(`decide ${req.requestId} denied jobStart`));
+});
+
+test('a claim that threw, then the target went offline: nothing is created while it is offline, and it is denied from claimed after ten minutes', async () => {
+  const req = jobRequest();
+  const opts: { failClaim: number; runners: RunnerRef[]; now: number } = { failClaim: 1, runners: RUNNERS, now: 2000 };
+  const f = fake([req], opts);
+  await f.starter.tick();
+  opts.runners = RUNNERS.map((r) => (r.id === MINI ? { ...r, online: false } : r));
+  await f.starter.tick();
+  assert.equal(f.created.length, 0);
+  assert.equal(f.state.get(req.requestId)!.state, 'claimed');
+  opts.now = 1000 + 11 * 60_000;
+  await f.starter.tick();
+  assert.equal(f.created.length, 0);
+  assert.equal(f.state.get(req.requestId)!.state, 'denied');
+  assert.ok(f.log.includes(`decide ${req.requestId} denied jobStart`));
+});
+
+test('a retried claim with nothing changed still starts once, with the brief as filed', async () => {
+  const req = jobRequest();
+  const f = fake([req], { failClaim: 1 });
+  await f.starter.tick();
+  await f.starter.tick();
+  await f.starter.tick();
+  assert.equal(f.created.length, 1);
+  assert.equal(f.created[0]!.p.text, jobHeader(JOB, req) + fillBrief(JOB.brief, req.params, JOB.params));
+  assert.equal(f.state.get(req.requestId)!.state, 'allowed');
+});
+
 test('an allowed whose answer was lost is asked again next tick, and the thread is started once', async () => {
   const req = jobRequest();
   const f = fake([req], { failAllow: 1 });
