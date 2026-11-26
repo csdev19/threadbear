@@ -1463,6 +1463,44 @@ message it back. Agents on this Mac start threads on the other Macs
 without asking, and each reply such a thread ends a turn with comes back
 to the thread that started it as a message (the other Macs can't message
 this one's threads themselves).
+A job lets an agent on another Mac get something done on a Mac you name,
+with no card to answer. A job is a template you write on this Mac: a name,
+the Mac it runs on (by its runner id, never its name), the repos it may be
+asked about, its values (each a repo from that list, a branch name or a
+whole number), the permission mode it runs in (Ask, Auto, Plan or Full:
+there is no default, so a job is never Full access by leaving it out), how
+many requests an hour it takes, and the brief it starts with, with the
+values filled in. There is no `tb` command to write one yet: jobs are set
+with the backend's `relay:setJobs`, using the main key, and the fields are
+in docs/protocol/runners.md, "Jobs". With the `multiMacJobs` experiment on
+(Settings > General > Experiments, on the main Mac; off by default), a request from another Mac for
+one of your jobs, with values that fit, starts by itself within about 15
+seconds on the Mac the job names. The thread it starts says on its first
+line that no person read the request. A request for a job whose Mac this
+one doesn't know is turned down with the reason, never started here, and
+so is one that waited more than an hour. When that thread's first turn
+ends, its reply goes to the asking thread as a message that says it came
+from that job and Mac and is data, not instructions: that thread ran
+branch code and read PR text, so the asking agent shouldn't obey it. Only
+the first reply comes back, cut at 20,000 characters. With the experiment
+off job requests wait, and nothing starts. Free text is another matter: a
+request from another Mac with no job always waits for you, on the card in
+the Mac app (and, with `multiMacJobs` on, the Android app can approve it
+too). To let a laptop's agents see your other Macs' threads while they do
+this, give that Mac's key the read tier (`tb runner add <name>
+--read-others`, or `tb runner reads <runnerId> on|off`, docs/dev-tools.md
+section 3): it reads, never starts anything, and a leaked key with it reads
+every Mac's transcripts.
+A Mac that runs jobs, like a Mac mini nobody sits at, should be set up with
+less than a full Mac. Check these once, and again after a change:
+
+- It holds no owner key, deploy key or Convex login: `tb runner check --ssh
+  <the mini>` on this Mac looks, and says what to revoke and remove.
+- Its GitHub token is a fine-grained one limited to the job repos, with no
+  workflow scope.
+- Each of those repos has branch protection on its default branch, so what
+  the mini pushes is reviewed before anything builds from it.
+
 To start a thread on another Mac, pick it with the machine chip on the composer: the
 folder, account and model are then that Mac's. New threads start on the
 starred one: change it under Default in that chip's menu, or in
