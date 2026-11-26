@@ -224,6 +224,8 @@ export class ThreadIndex {
   private archivedWanted = false;
   // The backend said this runner's key can't read other runners' threads.
   private refused = false;
+  // The refusal is in the log already: a retry that is refused again stays quiet until rows are heard.
+  private refusalSaid = false;
   // Whether the list has had the backend's answer since the watch started
   // (or been refused), so the agent tools wait for it only until then.
   private answered = false;
@@ -245,7 +247,17 @@ export class ThreadIndex {
 
   /** Once a heartbeat says the backend has the table (API 12). */
   start(): void {
-    if (this.running) return;
+    if (this.running) {
+      // A heartbeat that says the key still reads, after the backend refused
+      // the watch (a grant cleared and given again between two heartbeats,
+      // so the cached word never changed): ask again. A stop for a refusal
+      // leaves the index restartable, not stuck.
+      if (this.refused && this.deps.mayRead?.()) {
+        this.refused = false;
+        if (!this.deps.appConnected || this.deps.appConnected()) this.watch();
+      }
+      return;
+    }
     this.running = true;
     this.full = true;
     const seed = this.deps.seed?.();
@@ -454,13 +466,15 @@ export class ThreadIndex {
     // A refusal is authoritative: there are no accessible remote rows.
     // A transient error before the first answer is still an unready list.
     this.answered = true;
-    if (!this.refused) this.deps.log.info('not watching the other runners’ threads: this runner has a runner key without the read tier, and only the main Mac’s key (or a key given --read-others) reads them', { error: refused });
+    if (!this.refusalSaid) this.deps.log.info('not watching the other runners’ threads: this runner has a runner key without the read tier, and only the main Mac’s key (or a key given --read-others) reads them', { error: refused });
+    this.refusalSaid = true;
     this.refused = true;
     this.unwatch();
   }
 
   private onRows(v: unknown, asked: { runnerId: string; since?: number }[]): void {
     this.answered = true;
+    this.refusalSaid = false;
     const got = Array.isArray(v) ? (v as SinceRow[]) : [];
     for (const a of asked) {
       const mine = got.filter((r) => r.runnerId === a.runnerId);
