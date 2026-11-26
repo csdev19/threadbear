@@ -221,6 +221,14 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   workflow marked `# tb land: hold while red` that's red on main, and
   tells it when it fails again or passes (docs/thread-worktrees.md, "Red
   on GitHub"). A schedule's check runs it every 10 minutes on Mike's Mac.
+- `tb runner add <name> (--ssh <host> | --out <file>) [--id <runnerId>]
+  [--replace] [--read-others]`, `tb runner list`, `tb runner reads
+  <runnerId> on|off`, `tb runner revoke <runnerId>`: runner keys, on the
+  main Mac (docs/protocol/keys.md, "Runner keys"). `--read-others` gives the
+  new key the read tier (the other Macs' thread list, messages and pictures,
+  never a write); `reads on|off` sets or clears it on a live key; `list`
+  shows it as `reads`; revoke and a `--replace` without `--read-others`
+  clear it.
 - `tb activity` (and `--summary`): what Mike has clicked, opened, chosen and
   sent in the app lately, or what he uses most, while he has the activity log
   on (Settings > General; off by default, so other people's copies never

@@ -64,8 +64,9 @@ type RemoteThreads = {
                        // keep known rows and defer totals while false.
                        // Absent on an older runner (treat as ready).
   order?: string[]     // Mike's runner order (backend API 58, sync:runnerOrder,
-                       // owner key only): every runner's id, this one's too.
-                       // Left out until heard, and by an older runner
+                       // owner key only, not the read tier): every runner's
+                       // id, this one's too. Left out until heard, on a runner
+                       // key with reads, and by an older runner
 }
 type RemoteRunner = {
   id: string, name: string, icon?: string  // as RunnerInfo
@@ -132,7 +133,16 @@ runner as a `commands` row, as the phone does. The app has no Convex of its
 own and no link to the other Mac; nothing reaches another runner but its
 commands. Only the owner key can do this (`convex/relay.ts`, all owner
 only in Runner keys), so it's the main Mac's runner that answers; a runner
-on a runner key answers `-32000` for another runner's thread. This is the
+on a runner key answers `-32000` for another runner's thread. The exception
+is a runner key with the read tier (API 107, Runner keys, "The read tier"):
+that runner lists and opens other runners' threads, tail, messages, row and
+pasted pictures included, but every write (a send, `threads.create` with a
+`runnerId`, an approval answered there, an interrupt, a move, `files.list`)
+fails before it reaches the backend with "This Mac's key can read other
+Macs' threads but not start or change anything there. Ask an agent here to
+use create_thread, which asks the main Mac.", and a tool's output
+(`threads.heldBody`) is answered as kept on the main Mac, as for a tool
+whose output is withheld. A key without the tier is unchanged. This is the
 only way the app opens another runner's thread.
 
 - **Which threads.** A `THREAD_METHODS` request whose `threadId` isn't this
@@ -207,7 +217,7 @@ only way the app opens another runner's thread.
   (`replyImages` rows with `src` `picture:N`, which it writes unless its
   `sync.pastedPictures` is false), read by `relay:picturesAtSeqs { key,
   threadId, seqs }` → `[{ seq, n, path, url, mediaType, width?, height? }]`
-  (at most 50 seqs a read and 30 pictures a seq, owner only). With `pictures`,
+  (at most 50 seqs a read and 30 pictures a seq, the owner key or a runner key with reads). With `pictures`,
   `images` has exactly that many (at most 50): `images[N-1]` is picture N,
   `{ path, mediaType, width?, height? }`, `path` being the file's path on that
   runner's Mac, or `threadbear-relay:<threadId>/<seq>/Picture <N>` for one not

@@ -64,8 +64,34 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
   key is for.
 - **A runner key** (`tbr_` and 64 hex characters) acts as one `runnerId`
   alone. The backend keeps only its SHA-256 (`runnerKeys`: `runnerId,
-  keyHash, name, createdAt, revokedAt?`); making another for the same
-  runner revokes the one before. A revoked key is refused like a wrong one.
+  keyHash, name, createdAt, revokedAt?, reads?`); making another for the
+  same runner revokes the one before. A revoked key is refused like a wrong one.
+- **The read tier** (API 107, ADR 0002, `docs/adr/0002-runner-keys-may-hold-an-opt-in-read-tier.md`).
+  A runner key may carry `reads: true`, which only the owner key sets: `tb
+  runner add <name> --read-others` when making it, or `tb runner reads
+  <runnerId> on|off` (`sync:setRunnerReads`) on a live one. Without it
+  nothing changes. With it the key may call exactly these reads, which
+  the table below marks "owner, or a key with reads": `otherRunnersList`,
+  `otherRunnersThreads`, `threadIndexSince` (the other runners and their
+  sidebar rows), `remoteTail`, `remoteMessages`, `remoteThread` (a thread's
+  messages and row, its open approval and secret card key included) and
+  `picturesAtSeqs` (pictures pasted into messages). A key with reads gets
+  the same answers the owner key does, the other runners including the main
+  Mac's. Everything else stays owner only: tool output (`remoteBody`),
+  accounts (`remoteAccounts`), pools (`remotePools`), Mike's runner order
+  (`runnerOrder`) and every write (`queueCommand`, `pictureUploadUrl`,
+  `decideRequest`, ...), so a key with reads can read another Mac's
+  threads but not start, steer or change anything there (a laptop's
+  agents file a request or a job for the main Mac to carry out, "Asking
+  another runner"). It never applies to a box key. `tb runner revoke`
+  clears it, and so does making a new key for the same runner (`tb runner
+  add ... --replace`): the new key has reads only if it's asked for again.
+  The runner learns it from its heartbeat, which answers `reads: true` to a
+  runner key that has it (a backend before API 107 never does, so such a
+  runner doesn't read); the heartbeat after a change brings the watch of
+  the other runners up or down. A leaked key with reads reads every Mac's
+  transcripts, which ADR 0002 accepts; what it reads reaches that Mac's
+  agents as information, never as instructions.
 - **Making one.** On the main Mac, `tb runner add <name> --ssh <host>`
   reads that Mac's `runner.json` over ssh, but decides the id itself: it
   refuses the main Mac's own id, an id that isn't one, one that mirrors to
@@ -135,8 +161,8 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
   its runner's, throws `ConvexError({ kind: "forbidden", message })`, the
   message starting "This runner's key can't ...". The runner turns the
   feature off quietly rather than retrying: the other runners' threads
-  watch stops for good with one log line (that Mac's app lists only its
-  own threads), a heartbeat refused (a key for another runner id) is one
+  watch of a key without `reads` stops with one log line (that Mac's app
+  lists only its own threads; a later grant of `reads` starts it again), a heartbeat refused (a key for another runner id) is one
   warning, and pairing a phone, a Pocket card from another Mac or a
   schedule on another runner fail with the backend's words.
 - **Thread ids.** A runner key reaches only thread ids whose row is its
@@ -390,7 +416,9 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
 
 Who may call each function in `convex/sync.ts`. "Owner only" is the owner
 key; "its own" is any key for its own runner's rows (the owner for
-anyone's); "any runner" is any good key. Anything not sorted is owner only.
+anyone's); "any runner" is any good key; "owner, or a key with reads" is
+the owner key or a runner key the owner gave `reads` (The read tier).
+Anything not sorted is owner only.
 
 | Function | Who | What "its own" means |
 |---|---|---|
@@ -449,25 +477,26 @@ anyone's); "any runner" is any good key. Anything not sorted is owner only.
 | `removePocketCard` | its own | a card its runner filed |
 | `pocketCards` | its own | lists only the cards its runner filed; the owner sees all, with `filedBy` |
 | `setThreadIndex` | its own | `runnerId`; a new row for a thread another runner has or had is left out, so one thread id is one runner's |
-| `otherRunnersList` | owner only | other runners' names, icons and when they were last heard |
+| `otherRunnersList` | owner, or a key with reads | other runners' names, icons and when they were last heard |
 | `runnerOrder` | owner only | Mike's runner order, for the main Mac's Settings |
 | `setRunnerOrder` | owner only | a key that could move the order could put its own Mac first for Mike's phone's new threads |
-| `otherRunnersThreads` | owner only | other runners' sidebars |
-| `threadIndexSince` | owner only | other runners' sidebars |
+| `otherRunnersThreads` | owner, or a key with reads | other runners' sidebars |
+| `threadIndexSince` | owner, or a key with reads | other runners' sidebars |
 | `issueToken` | owner only | a phone token reads everything and queues commands for every runner |
 | `issuePairingCode` | owner only | a pairing code is traded for a phone token |
 | `listTokens` | owner only | |
 | `revokeToken` | owner only | |
-| `addRunnerKey` | owner only | never for `"any"` or the asking Mac's own id (recorded, for the audit); over a live key only with `replace`; at most three live |
+| `addRunnerKey` | owner only | never for `"any"` or the asking Mac's own id (recorded, for the audit); over a live key only with `replace`; at most three live; takes `reads`, which a replacement doesn't inherit |
 | `listRunnerKeys` | owner only | |
-| `revokeRunnerKey` | owner only | |
+| `revokeRunnerKey` | owner only | also clears the key's `reads` |
+| `setRunnerReads` | owner only | sets or clears `reads` on a runner's live key (API 107); 0 when it has none |
 | `audit` | owner only | what the old shared key could have left (`tb runner audit`) |
 | `scrubStoredBatch` | owner only | today's secret rules over stored rows, a page at a time (`runner/scripts/scrub-stored.mjs`) |
 | `auditRemove` | owner only | takes out the exact rows `tb runner audit --drop` picks, each only if it's still the version listed |
 | `purgeRunner` | owner only | `tb runner revoke <runnerId> --purge`: everything a runner with no live key wrote, a batch a call |
-| `remoteTail` | owner only | another runner's messages (`convex/relay.ts`, Other runners' threads through the backend) |
-| `remoteMessages` | owner only | the same, a page at a time |
-| `remoteThread` | owner only | another runner's thread row, its open approval and card |
+| `remoteTail` | owner, or a key with reads | another runner's messages (`convex/relay.ts`, Other runners' threads through the backend) |
+| `remoteMessages` | owner, or a key with reads | the same, a page at a time |
+| `remoteThread` | owner, or a key with reads | another runner's thread row, its open approval and card |
 | `queueCommand` | owner only | work for another runner: a thread's command goes to the runner the backend says has it |
 | `commandState` | owner only | |
 | `pictureUploadUrl` | owner only | a one-use `/relay/upload` URL for a picture going to another runner's thread, recorded in `relayUploads` |
@@ -475,7 +504,7 @@ anyone's); "any runner" is any good key. Anything not sorted is owner only.
 | `remoteAccounts` | owner only | another runner's logins, with their usage from API 77 |
 | `remotePools` | owner only | another runner's effective pool membership, from API 101 |
 | `remoteBody` | owner only | one tool's output on another runner's thread (full sync) |
-| `picturesAtSeqs` | owner only | the pictures pasted into the messages at up to 50 seqs of another runner's thread (`replyImages` with `src` `picture:N`), each with its file's URL (API 87) |
+| `picturesAtSeqs` | owner, or a key with reads | the pictures pasted into the messages at up to 50 seqs of another runner's thread (`replyImages` with `src` `picture:N`), each with its file's URL (API 87) |
 | `fileRequest` | its own | a request for a thread on another runner, from one of its own threads (Asking another runner); never changed after; at most 5 waiting (one over two hours old doesn't count) and 50 kept, oldest going first, for a week at most. With `job` and `params` it asks for a named job instead: the job must exist, the parameters must fit its schema (a `branch` only `A-Za-z0-9._/+-`, with no `..`, `//`, leading `-` or `/`, trailing `/` or `.`, or part starting `.` or ending `.lock`), `text` is empty, and the job's `perHour` caps how many are filed, per job across all runner keys (a job request filed in the last hour is never one of those made room for) |
 | `runnerRequest` | its own | a request its runner filed; the owner reads any |
 | `decideRequest` | owner only | claims a pending request, marks a claimed one allowed (with where it started) or hands it back, or denies a pending one; for a request naming a job only with `jobStart: true`, and then `allowed` must be at the job's own target (Asking another runner, "Jobs") |

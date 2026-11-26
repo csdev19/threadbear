@@ -82,7 +82,7 @@ it. Lowering a mode never asks, except another thread's that has more access tha
 
 Other runners' threads, as the Mac's sidebar has them (`remoteThreads.list`),
 reach the tools through the relay (see "Other runners' threads through the
-backend"), so only on the owner key: `list_threads` lists and searches them
+backend"), so only on the owner key or a runner key with reads: `list_threads` lists and searches them
 with this runner's (the same lists and the same word match on title and
 preview), each row's flags ending `on <runner name>`; `read_thread` reads
 one's messages from `threads.events` in relay seqs (its settings say the
@@ -96,7 +96,11 @@ archives or unarchives one with `threads.update` (an archive with
 `archivedBy: "agent"`, below); its title, model, pool and mode stay with
 that runner, which alone knows whether Mike named it, and snoozing until
 the next release isn't asked of it. `move_thread` and `delete_thread`
-say it's on that runner rather than that it's missing. A
+say it's on that runner rather than that it's missing. On a runner key
+with reads only the reading tools work there: `send_message`,
+`interrupt_thread`, `update_thread`, `move_thread` and `delete_thread` on
+another Mac's thread answer that this Mac's key can read other Macs' threads
+but not change anything there. A
 runner that isn't watching the list (no app connected lately) starts the
 watch and waits up to 3 seconds for its answer, rows and all (a refusal or
 an error ends the wait); one that runs out isn't waited for again for a

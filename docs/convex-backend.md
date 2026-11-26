@@ -28,7 +28,8 @@ dashboard panel.
   runner reading another runner's thread (`remoteTail`, `remoteMessages`,
   `remoteThread`, and from API 87 `picturesAtSeqs`, the pictures pasted into
   its messages) and queueing work for it (`queueCommand`, `commandState`,
-  `remoteAccounts`), owner key only, so the Mac app opens other Macs'
+  `remoteAccounts`), owner key only (the reads, bar tool output, accounts and
+  pools, also for a runner key the owner gave `reads`, API 107), so the Mac app opens other Macs'
   threads with no link to them (docs/protocol/runners.md, "Other runners' threads
   through the backend"). Each takes `key`: the deployment's
   `RUNNER_KEY` (the owner key, the main Mac's), or a runner key from

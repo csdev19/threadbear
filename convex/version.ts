@@ -514,4 +514,13 @@
 //    queues a `startRequest` command for the main Mac, which starts it only
 //    with the multiMacJobs experiment on. A runner that doesn't know the
 //    command fails it as unknown; the phone is told so by the command's state.
-export const API_VERSION = 106;
+// 107: the read tier (docs/protocol/keys.md, "The read tier"): a runner key can
+//    carry `reads`, set by the owner (sync:addRunnerKey takes it,
+//    sync:setRunnerReads changes it), which lets it call the owner's reads of
+//    other runners' threads (otherRunnersList, otherRunnersThreads,
+//    threadIndexSince, remoteTail, remoteMessages, remoteThread,
+//    picturesAtSeqs). A runner key's heartbeat answers `reads: true` when it
+//    has it. Revoking or replacing the key clears it. A runner reads other
+//    runners' threads on a runner key only from a backend of 107 or later.
+//    (106 is the phone-approval branch's; the gap is resolved at rebase.)
+export const API_VERSION = 107;

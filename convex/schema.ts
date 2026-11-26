@@ -508,6 +508,8 @@ export const appSchema = defineSchema({
     name: v.string(),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
+    // The read tier (API 107, ADR 0002): set only by the owner, cleared by a revoke and a replacement.
+    reads: v.optional(v.boolean()),
   })
     .index('by_hash', ['keyHash'])
     .index('by_runnerId', ['runnerId'])

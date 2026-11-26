@@ -3,8 +3,10 @@
 // Mac's runner reads another runner's thread from its messages and threads
 // rows, and asks that runner to act on it with a `commands` row, as the
 // phone does. The Mac app talks only to its own runner; runners never talk
-// to each other. All owner only (runnerAccess.ts ACCESS): a runner key
-// can't read another runner's threads or queue work for it.
+// to each other. The reads (remoteTail, remoteMessages, remoteThread,
+// picturesAtSeqs) are the owner's, or a runner key's the owner gave `reads`;
+// everything that queues work or shows tool output is the owner's alone
+// (runnerAccess.ts ACCESS).
 //
 // Read rules (docs/convex-backend.md, "Read rules"): the live tail is a few rows, older pages
 // are read once and kept on the runner, a thread's row is one document, and

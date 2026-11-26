@@ -1502,8 +1502,11 @@ export const heartbeat = mutation({
   // pushFailing (owner key only): pushes from this backend haven't got
   // through lately, and why (pushHealth.ts), for tb status and the app.
   // pushOff: it can't send any (pushHealth.ts pushOff), for the same.
+  // reads (API 107, a runner key only): the owner gave this key the read tier
+  // (runnerAccess.ts ACCESS 'reads'), so its runner watches the other runners.
   returns: v.object({
     apiVersion: v.number(),
+    reads: v.optional(v.boolean()),
     firstSeen: v.optional(v.boolean()),
     ownerKeyRotating: v.optional(v.boolean()),
     pushOff: v.optional(v.boolean()),
@@ -1605,7 +1608,7 @@ export const heartbeat = mutation({
       }
     }
     const failing = caller.owner ? pushFailing(await ctx.db.query('pushHealth').first(), Date.now()) : null;
-    return { apiVersion: API_VERSION, ...(existing ? {} : { firstSeen: true }), ...(caller.owner && process.env.RUNNER_KEY_NEXT ? { ownerKeyRotating: true } : {}), ...(caller.owner && pushOff(process.env) ? { pushOff: true } : {}), ...(failing ? { pushFailing: failing } : {}), ...(boxRow ? { box: { state: boxRow.boxState.kind } } : {}) };
+    return { apiVersion: API_VERSION, ...(!caller.owner && caller.reads ? { reads: true } : {}), ...(existing ? {} : { firstSeen: true }), ...(caller.owner && process.env.RUNNER_KEY_NEXT ? { ownerKeyRotating: true } : {}), ...(caller.owner && pushOff(process.env) ? { pushOff: true } : {}), ...(failing ? { pushFailing: failing } : {}), ...(boxRow ? { box: { state: boxRow.boxState.kind } } : {}) };
   },
 });
 
@@ -4402,7 +4405,7 @@ export const otherRunnersThreads = query({
 // alone. The plain key goes back in the reply that made it and nowhere
 // else; only its hash is kept.
 
-const runnerKeyInfo = v.object({ runnerId: v.string(), name: v.string(), createdAt: v.string(), revokedAt: v.optional(v.string()) });
+const runnerKeyInfo = v.object({ runnerId: v.string(), name: v.string(), createdAt: v.string(), revokedAt: v.optional(v.string()), reads: v.optional(v.boolean()) });
 
 // `ownerRunnerId` is the main Mac's own runner id, as it asks: a key for it
 // would let another Mac write as the main one. Ids are checked as given,
@@ -4411,7 +4414,7 @@ const runnerKeyInfo = v.object({ runnerId: v.string(), name: v.string(), created
 // Over a runner id that has a live key only with `replace`: the CLI asks for
 // it after showing which runner that is, so a Mac claiming another's id
 // can't quietly take its place.
-async function makeRunnerKey(ctx: MutationCtx, runnerId: string, name: string, ownerRunnerId: string, replace: boolean): Promise<{ runnerId: string; key: string }> {
+async function makeRunnerKey(ctx: MutationCtx, runnerId: string, name: string, ownerRunnerId: string, replace: boolean, reads: boolean): Promise<{ runnerId: string; key: string }> {
   checkRunnerId(runnerId);
   if (runnerId === ownerRunnerId) throw new ConvexError({ kind: 'badArgs', message: "That's the main Mac's own runner id: a runner key is for another Mac." });
   if (!replace && (await hasLiveKey(ctx, runnerId))) throw new ConvexError({ kind: 'badArgs', message: `Runner ${runnerId} already has a live key. To replace it, ask again with replace.` });
@@ -4431,12 +4434,13 @@ async function makeRunnerKey(ctx: MutationCtx, runnerId: string, name: string, o
   const now = Date.now();
   // One live key per runner: a new one is how a key is rotated.
   for await (const row of ctx.db.query('runnerKeys').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))) {
-    if (!row.revokedAt) await ctx.db.patch(row._id, { revokedAt: now });
+    if (!row.revokedAt) await ctx.db.patch(row._id, { revokedAt: now, reads: undefined });
   }
   // A new key shares no logins until the owner says (tb runner logins), as
   // it may be a different Mac under the same id.
   await dropRunnerLogins(ctx, runnerId);
-  await ctx.db.insert('runnerKeys', { runnerId, keyHash: await sha256(key), name: label, createdAt: now });
+  // The read tier is the owner's word each time: a replacement has it only if asked again.
+  await ctx.db.insert('runnerKeys', { runnerId, keyHash: await sha256(key), name: label, createdAt: now, ...(reads ? { reads: true } : {}) });
   // It's no longer the main key's runner: off the phone's default at once,
   // not when it next heartbeats (phone.ts mainRunner).
   const row = await ctx.db.query('runners').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId)).unique();
@@ -4445,13 +4449,13 @@ async function makeRunnerKey(ctx: MutationCtx, runnerId: string, name: string, o
 }
 
 export const addRunnerKey = mutation({
-  args: { key: v.string(), runnerId: v.string(), name: v.string(), ownerRunnerId: v.string(), replace: v.optional(v.boolean()) },
+  args: { key: v.string(), runnerId: v.string(), name: v.string(), ownerRunnerId: v.string(), replace: v.optional(v.boolean()), reads: v.optional(v.boolean()) },
   returns: v.object({ runnerId: v.string(), key: v.string() }),
-  handler: async (ctx, { key, runnerId, name, ownerRunnerId, replace }) => {
+  handler: async (ctx, { key, runnerId, name, ownerRunnerId, replace, reads }) => {
     await runnerAuth(ctx, key, 'addRunnerKey');
     // runner-keys.ts posts straight to the backend, not through ConvexSync's
     // scrubbing wrapper, so this pass is the only one its name gets.
-    return makeRunnerKey(ctx, runnerId, clean(name), ownerRunnerId, Boolean(replace));
+    return makeRunnerKey(ctx, runnerId, clean(name), ownerRunnerId, Boolean(replace), reads === true);
   },
 });
 
@@ -4463,7 +4467,7 @@ export const listRunnerKeys = query({
   handler: async (ctx, { key }) => {
     await runnerAuth(ctx, key, 'listRunnerKeys');
     const rows = await ctx.db.query('runnerKeys').collect();
-    const keys = rows.map((r) => ({ runnerId: r.runnerId, name: r.name, createdAt: new Date(r.createdAt).toISOString(), ...(r.revokedAt ? { revokedAt: new Date(r.revokedAt).toISOString() } : {}) }));
+    const keys = rows.map((r) => ({ runnerId: r.runnerId, name: r.name, createdAt: new Date(r.createdAt).toISOString(), ...(r.revokedAt ? { revokedAt: new Date(r.revokedAt).toISOString() } : {}), ...(r.reads && !r.revokedAt ? { reads: true } : {}) }));
     return { keys, rotating: Boolean(process.env.RUNNER_KEY_NEXT) };
   },
 });
@@ -4478,11 +4482,30 @@ export const revokeRunnerKey = mutation({
     let n = 0;
     for await (const row of ctx.db.query('runnerKeys').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))) {
       if (row.revokedAt) continue;
-      await ctx.db.patch(row._id, { revokedAt: Date.now() });
+      await ctx.db.patch(row._id, { revokedAt: Date.now(), reads: undefined });
       n++;
     }
     // What it shared goes with it (dropRunnerLogins).
     await dropRunnerLogins(ctx, runnerId);
+    return n;
+  },
+});
+
+// Gives a runner's live key the read tier, or takes it away (API 107, ADR
+// 0002). How many live keys it changed (0: that runner has none, and a
+// revoked row is never given it).
+export const setRunnerReads = mutation({
+  args: { key: v.string(), runnerId: v.string(), reads: v.boolean() },
+  returns: v.number(),
+  handler: async (ctx, { key, runnerId, reads }) => {
+    await runnerAuth(ctx, key, 'setRunnerReads');
+    checkRunnerId(runnerId);
+    let n = 0;
+    for await (const row of ctx.db.query('runnerKeys').withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))) {
+      if (row.revokedAt) continue;
+      await ctx.db.patch(row._id, { reads: reads ? true : undefined });
+      n++;
+    }
     return n;
   },
 });
