@@ -816,6 +816,10 @@ function setupFull(opts: { elsewhereThread?: (threadId: string) => ThreadSummary
       schedule: (p) => {
         applied.push(`schedule ${p.scheduleId} ${p.action}`);
       },
+      startRequest: async (p) => {
+        applied.push(`startRequest ${p.threadId} ${p.approvalId} ${p.docId}`);
+        return { thread: { id: 'new1', runnerId: 'mini', runnerName: 'mac-mini' } };
+      },
       send: (id, text, images, o) => {
         applied.push(`send ${id} ${text} ${o.origin}`);
         // A forwarded command fails later, as a rejected promise.
@@ -4009,6 +4013,25 @@ test('the phone asks for a thread\'s slash commands: the list goes back as the c
   assert.equal(done.args.ok, true);
   const list = JSON.parse(done.args.result as string) as { name: string }[];
   assert.deepEqual(list.map((c) => c.name), ['model', 'effort', 'compact', 'deslop']);
+  await sync.stop();
+});
+
+test("the phone's Start it: the command names the asking thread in its args, and the thread it started goes back as the result", async () => {
+  const { sync, calls, push, applied } = setupFull({ apiVersion: BACKEND_API_VERSION });
+  sync.start();
+  await sync.flushNow();
+  push([{ commandId: 'sr1', kind: 'startRequest', args: { threadId: 'far-thread', approvalId: 'req-0000001', docId: 'doc1' }, createdAt: 1 }]);
+  await tick(20);
+  assert.deepEqual(applied.filter((a) => a.startsWith('startRequest')), ['startRequest far-thread req-0000001 doc1']);
+  const done = calls.find((c) => c.fn === 'sync:finishCommand' && c.args.commandId === 'sr1')!;
+  assert.equal(done.args.ok, true);
+  assert.deepEqual(JSON.parse(done.args.result as string), { thread: { id: 'new1', runnerId: 'mini', runnerName: 'mac-mini' } });
+  // Args that aren't strings are refused, never read as ids.
+  push([{ commandId: 'sr2', kind: 'startRequest', args: { threadId: 'far-thread', approvalId: 7, docId: 'doc1' }, createdAt: 2 }]);
+  await tick(20);
+  const bad = calls.find((c) => c.fn === 'sync:finishCommand' && c.args.commandId === 'sr2')!;
+  assert.equal(bad.args.ok, false);
+  assert.equal(applied.filter((a) => a.startsWith('startRequest')).length, 1);
   await sync.stop();
 });
 

@@ -68,6 +68,9 @@ export type CrossRunnerDeps = {
   // A folder's real path (symlinks followed), or undefined for anything
   // that isn't a folder.
   realDir: (p: string) => string | undefined;
+  // The multiMacJobs experiment is on (read each time), which a start from
+  // the phone needs. Absent means off.
+  phoneStarts?: () => boolean;
 };
 
 const bad = (m: string) => new RpcError(ErrorCode.badParams, m);
@@ -245,6 +248,24 @@ export class CrossRunner {
     const request = here && place && 'folder' in place ? { ...row, cwd: place.folder } : row;
     const missing = here && place && 'missing' in place ? { missingFolder: place.missing } : {};
     return { request, ...(target ? { target } : {}), runners, fingerprint: fingerprint(row, place), ...missing };
+  }
+
+  /**
+   * The phone's Start it (the `startRequest` command, convex/phone.ts
+   * startRequestNow): the same start as the Mac's Start it, but only with the
+   * experiment on, and only the row the phone showed. The fingerprint is
+   * computed here from the row as it is now, so what holds the start to what
+   * the phone showed is its `docId` (a row filed again under the id is another).
+   */
+  async startFromPhone(threadId: string, approvalId: string, docId: string): Promise<{ thread?: { id: string; runnerId: string; runnerName: string } }> {
+    if (!this.deps.phoneStarts?.()) throw other('Starting requests from the phone is off on the main Mac.');
+    this.mustOwn();
+    const { request, target, fingerprint: shown } = await this.get(threadId, approvalId);
+    if (request.docId !== docId) throw bad('That request has changed since the phone showed it.');
+    // A machine this Mac doesn't know: the Mac's own Start it starts it here
+    // (and its card says so), but a phone never saw that, so it stays unstarted.
+    if (!target) throw bad(`No runner called ${request.target}. Answer it on the Mac.`);
+    return this.answer(threadId, approvalId, true, target.id, shown);
   }
 
   private place(row: RunnerRequestRow): Place | undefined {
