@@ -522,5 +522,4 @@
 //    picturesAtSeqs). A runner key's heartbeat answers `reads: true` when it
 //    has it. Revoking or replacing the key clears it. A runner reads other
 //    runners' threads on a runner key only from a backend of 107 or later.
-//    (106 is the phone-approval branch's; the gap is resolved at rebase.)
 export const API_VERSION = 107;
