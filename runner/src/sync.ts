@@ -4548,7 +4548,7 @@ export class ConvexSync {
   /**
    * What relay.ts reads and queues with: this runner's link to the backend,
    * with the owner key, or a runner key with the read tier (which relay.ts
-   * only reads with: its writes fail before they get here, RelayDeps.mayWrite).
+   * only reads with: its writes fail before they get here, RelayDeps.owner, checked by mustBeOwner).
    * Undefined with sync off or before the backend is at RELAY_API_VERSION.
    */
   relaySource(): { post: Post; subscribe?: Subscribe; key: string; apiVersion: number; upload: Upload; download: Download } | undefined {
