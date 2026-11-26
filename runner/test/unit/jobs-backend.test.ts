@@ -198,6 +198,12 @@ test('setJobs replaces the whole list, and checks every job before it changes an
   assert.deepEqual(await call(s.ctx, relay.jobsList, { key: OWNER }), []);
 });
 
+test('setJobs refuses a brief with a shell ${undeclared}: a word in braces is a placeholder even after $', async () => {
+  const s = await setup();
+  assert.equal(await outcome(s.publish(job({ brief: 'cd ${undeclared} && ls' }))), 'badArgs');
+  await s.publish(job({ brief: 'cd ${repo} && ls' }));
+});
+
 test('setJobs refuses a job whose fields are out of range', async () => {
   const s = await setup();
   const bad: [string, Record<string, unknown>][] = [

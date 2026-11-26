@@ -541,14 +541,20 @@ checks every field); the owner key and runner keys read them
   Mac can't send a job somewhere else.
 - `repos`: the repositories it may be asked about, each `owner/name`.
 - `params`: parameter name to its type, one of `repo` (one of `repos`),
-  `branch` (a git ref with no `..`, whitespace, leading `-` or any of
-  `~^:?*[\`, at most 200 bytes) or `int` (a positive whole number of at
-  most 9 digits).
+  `branch` (at most 200 bytes, only `A-Za-z0-9._/+-`, so no whitespace
+  and none of `~^:?*[\`; it can't start with `-` or `/`, end with `/` or
+  `.`, hold `..` or `//`, and each `/`-separated part is non-empty, doesn't
+  start with `.` and doesn't end with `.lock`) or `int` (a positive whole
+  number of at most 9 digits).
 - `mode`: `ask`, `auto`, `plan` or `full`. Required, with no default: a
   start with no mode is Full access, so a job is never Full by leaving
   it out.
 - `perHour`: 1 to 60, how many requests for it the backend takes in an
-  hour, whatever became of them (`tooMany` over it).
+  hour, whatever became of them (`tooMany` over it). The cap is per job
+  across all runner keys, not per runner: it bounds the total unattended
+  work on the job's target. Recent job requests are kept for the hour so
+  the cap can't be reset by deleting them; they also count toward a
+  runner's 50 kept requests.
 - `brief`: the text the thread starts with, with `{param}` placeholders,
   at most 4000 bytes, each naming one of the job's `params` (a brace
   holding anything else, such as JSON, is plain text). The main Mac fills

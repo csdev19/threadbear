@@ -218,6 +218,18 @@ test('answering on the main Mac: starts exactly what was filed, with a header sa
   await assert.rejects(f.cross.answer('cloud-thread', 'req-1', true, undefined, got.fingerprint), /already allowed/);
 });
 
+test('answering on the main Mac: a job request is never started from a card, Start it denies it with a reason', MAC_FOLDERS, async () => {
+  const f = fake({ owner: true });
+  const row = { docId: 'doc1', requestId: 'req-job', runnerId: 'cloud1', runnerName: 'Cloud box', threadId: 'cloud-thread', target: 'main', text: '', job: 'capture-evidence', params: { repo: 'a/b' }, createdAt: 1, state: 'pending' } as const;
+  f.rows.set('req-job', { ...row });
+  f.setOpen('req-job');
+  await assert.rejects(f.cross.answer('cloud-thread', 'req-job', true, undefined, fingerprint(row)), /job starter/);
+  assert.ok(!f.log.some((l) => l.startsWith('here ') || l.startsWith('there ') || l.includes('claimed')), `nothing started or claimed: ${f.log.join(' | ')}`);
+  assert.match(f.log.join('\n'), /respond cloud-thread req-job deny .*job starter/);
+  assert.ok(f.log.includes('decide req-job denied'));
+  assert.equal(f.rows.get('req-job')!.state, 'denied');
+});
+
 test("answering on the main Mac: not once the card has closed, not through another thread's card, and no says no", async () => {
   const f = fake({ owner: true });
   const base: RunnerRequestRow = { docId: 'doc1', requestId: 'req-2', runnerId: 'cloud1', runnerName: 'Cloud box', threadId: 'cloud-thread', target: 'mac-mini', text: 'x', createdAt: 1, state: 'pending' };

@@ -58,7 +58,7 @@ export function validInt(s: unknown): s is string {
   return typeof s === 'string' && s.length <= INT_MAX_DIGITS && /^[1-9][0-9]*$/.test(s);
 }
 
-/** The `{name}` placeholders in a brief, in order. A brace holding anything but a word (JSON, a shell `${x}`) isn't one. */
+/** The `{name}` placeholders in a brief, in order. A brace holding anything but a lower-case word (JSON, `{Not Word}`) isn't one; a word in braces is one even after `$`, so a shell `${x}` counts as the placeholder `{x}`. */
 export function placeholders(brief: string): string[] {
   return [...brief.matchAll(PLACEHOLDER)].map((m) => m[1]!).filter((n) => PARAM_NAME.test(n));
 }
