@@ -9,7 +9,7 @@ reminder: 25c8cbe6
 
 ## What it does
 
-On the main Mac (the one with the owner key), a request from another Mac's thread for one of your named jobs starts by itself on the Mac the job names, with the permission mode the job pins and the brief you wrote, with the values it asked for filled in. There is no card to answer: only a job you defined, with values that fit its types, can start this way. The thread it starts says on its first line that it was started under your job rule and that no person read the request. A free-text request from another Mac still waits for your answer, as before. A job whose Mac is unknown (the job names a runner id nothing has) is turned down with the reason, never started here instead. Off, nothing changes: job requests stay pending and are never started.
+On the main Mac (the one with the owner key), a request from another Mac's thread for one of your named jobs starts by itself on the Mac the job names, with the permission mode the job pins and the brief you wrote, with the values it asked for filled in. There is no card to answer: only a job you defined, with values that fit its types, can start this way. The thread it starts says on its first line that it was started under your job rule and that no person read the request. A request that has waited longer than the asking thread waits for it (60 minutes) is turned down with the reason, never started late. A free-text request from another Mac still waits for your answer, as before. A job whose Mac is unknown (the job names a runner id nothing has) is turned down with the reason, never started here instead. Off, nothing changes: job requests stay pending and are never started.
 
 ## Lives in
 

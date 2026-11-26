@@ -239,6 +239,22 @@ test('an offline target is left pending, and denied once it has waited ten minut
   assert.match(gone.log.join('\n'), /offline/);
 });
 
+test('a request older than its asking thread waits is denied unclaimed, and a younger one starts', async () => {
+  const old = fake([jobRequest({ createdAt: 1000 })], { now: 1000 + 61 * 60_000 });
+  await old.starter.tick();
+  assert.equal(old.created.length, 0);
+  assert.deepEqual(old.log.filter((l) => l.startsWith('decide')), [`decide ${[...old.state.keys()][0]} denied`]);
+  assert.equal([...old.state.values()][0]!.state, 'denied');
+  assert.match(old.log.join('\n'), /waited longer than its asking thread waits \(60 minutes\)/);
+  const offline = RUNNERS.map((r) => (r.id === MINI ? { ...r, online: false } : r));
+  const gone = fake([jobRequest({ createdAt: 1000 })], { runners: offline, now: 1000 + 61 * 60_000 });
+  await gone.starter.tick();
+  assert.match(gone.log.join('\n'), /waited longer/);
+  const fresh = fake([jobRequest({ createdAt: 1000 })], { now: 1000 + 59 * 60_000 });
+  await fresh.starter.tick();
+  assert.equal(fresh.created.length, 1);
+});
+
 test('the brief is filled once per placeholder and nothing else: a value is never searched for placeholders, `$&` is plain text', () => {
   assert.equal(fillBrief('a {x} b {y} c {x}', { x: '{y}', y: '$&' }, { x: 'branch', y: 'branch' }), 'a {y} b $& c {y}');
   // Braces that aren't a parameter stay as written (JSON), and a shell ${x} takes the value after the $.
