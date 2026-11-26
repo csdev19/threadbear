@@ -20,6 +20,7 @@ import { CommandNote, useCommand } from './command-state';
 import { STOP_HOLD_MS, unqueued } from './command';
 import { holdStop, releaseStop, stopHeldFor } from './stop-hold';
 import { withFailed, withoutSent } from './composer-draft';
+import { isPaged, nextUnanswered } from './ask-pager';
 import { previewOf, ShareControl, SharePage } from './share';
 import { busy, Lists, ResizeHandle, type Row, useSidebarWidth } from './sidebar';
 import { Pop } from './menu';
@@ -463,6 +464,25 @@ function Dock({ token, thread: t, lastSeq, onArchive, archiving, linkTo }: { tok
   const holding = unqueued(sending.state);
   const asks = !busy(t) && !t.pendingApproval ? (t.asks ?? []) : [];
   const by = picks.card === t.asksSeq ? picks.by : {};
+  // A tall card of asks shows one at a time (ask-pager.ts, as the desktop
+  // does). The page belongs to one card, so a new card starts at the first.
+  const [pager, setPager] = useState<{ card?: number; page: number }>({ page: 0 });
+  const paged = isPaged(asks);
+  const page = paged && pager.card === t.asksSeq ? Math.min(pager.page, asks.length - 1) : 0;
+  const pickAsk = (i: number, n: number) => {
+    const unpick = by[i] === n;
+    const now = { ...by, [i]: unpick ? -1 : n };
+    setPicks({ card: t.asksSeq, by: now });
+    if (!paged || unpick) return;
+    // Moves on to the next ask still waiting after a beat, so the tick shows
+    // first, and only if the page hasn't changed meanwhile (pick_answer).
+    const to = nextUnanswered(page, asks.length, now, false);
+    if (to === null) return;
+    const card = t.asksSeq;
+    // A pager not yet moved on this card is on its first page.
+    setTimeout(() => setPager((cur) => ((cur.card === card ? cur.page : 0) === page ? { card, page: to } : cur)), 300);
+  };
+  const goPage = (p: number) => setPager({ card: t.asksSeq, page: p });
   // Waiting on its own work isn't done, as on the Mac (19 Nov: a thread
   // waiting for CI before it could land said Done and was archived).
   const finished = !busy(t) && !t.needsYou && !t.pendingApproval && !asks.length && !t.archivedAt && !t.working && !stillWorking(t);
@@ -486,8 +506,21 @@ function Dock({ token, thread: t, lastSeq, onArchive, archiving, linkTo }: { tok
     <section className="card">
       <h2>
         ✋ {asks.length === 1 ? 'Decision needed' : 'Decisions needed'}
+        {paged ? (
+          <span className="pager">
+            <button className="btn plain" disabled={page === 0} onClick={() => goPage(page - 1)} aria-label="Previous ask" title="Previous ask">
+              ‹
+            </button>
+            <span className="of">
+              {page + 1} of {asks.length}
+            </span>
+            <button className="btn plain" disabled={page === asks.length - 1} onClick={() => goPage(page + 1)} aria-label="Next ask" title="Next ask">
+              ›
+            </button>
+          </span>
+        ) : null}
       </h2>
-      {asks.map((a, i) => (
+      {asks.map((a, i) => (paged && i !== page ? null : (
         <Fragment key={i}>
           <div className="ask-q">
             <MessageText text={`${asks.length > 1 ? `${i + 1}. ` : ''}${a.action.replace(/\s*\n\s*/g, ' ').trim()}`} />
@@ -530,7 +563,7 @@ function Dock({ token, thread: t, lastSeq, onArchive, archiving, linkTo }: { tok
           {choices(a).length ? (
             <div className="choices">
               {choices(a).map((c, n) => (
-                <button key={n} className={`choice ${by[i] === n ? 'on' : ''}`} disabled={holding} onClick={() => setPicks({ card: t.asksSeq, by: { ...by, [i]: by[i] === n ? -1 : n } })}>
+                <button key={n} className={`choice ${by[i] === n ? 'on' : ''}`} disabled={holding} onClick={() => pickAsk(i, n)}>
                   <span className="radio" />
                   <span>
                     {c}
@@ -544,7 +577,7 @@ function Dock({ token, thread: t, lastSeq, onArchive, archiving, linkTo }: { tok
             </div>
           ) : null}
         </Fragment>
-      ))}
+      )))}
     </section>
   ) : next.length || ends.length ? (
     <section className="card">
