@@ -640,6 +640,9 @@ It is how a job request starts without a card (`runner/src/job-starter.ts`).
   thread is told and nothing is ever started a second time. A request
   already claimed, allowed or denied is never started again, and the
   starter never starts a request id twice.
+  The job is checked again right before the thread is created, after the
+  claim, so a retried claim never starts a job the owner has since changed
+  or one that has waited too long: that request is denied from `claimed`.
 - The new thread's first line is the job header, not the card path's:
   `[Started by the job "<name>" for thread <id> on <Mac>, under the owner's
   job rule: no person read or allowed this request. The brief below is the
