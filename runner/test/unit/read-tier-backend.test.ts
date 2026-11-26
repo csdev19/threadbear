@@ -12,7 +12,6 @@ const MINI = 'cb921b2447ea';
 
 const sync = load('sync');
 const relay = load('relay');
-const { sha256 } = load('lib') as { sha256: (s: string) => Promise<string> };
 
 async function setup() {
   process.env.RUNNER_KEY = OWNER;
@@ -49,13 +48,15 @@ test('a key with reads reads other runners as the owner does; one without is ref
   await hb(s, OWNER, MAIN);
   await call(s.ctx, sync.upsertThreads, { key: OWNER, threads: [thread('T1', MAIN)] });
   await call(s.ctx, sync.appendMessages, { key: OWNER, messages: [{ threadId: 'T1', seq: 1, role: 'assistant', text: 'hello from main', at: 'now' }] });
-  await call(s.ctx, sync.setThreadIndex, { key: OWNER, runnerId: MAIN, rows: [{ threadId: 'T1', title: 'T', view: 'inbox', status: 'idle', needsYou: false, createdAt: '2026-11-26T00:00:00.000Z', lastActivityAt: '2026-11-26T00:00:00.000Z', cwd: '/x', accountId: 'a', provider: 'claude', unread: false, preview: '' }], removed: [] }).catch(() => undefined);
+  await call(s.ctx, sync.setThreadIndex, { key: OWNER, runnerId: MAIN, rows: [{ threadId: 'T1', title: 'T', status: 'idle', needsYou: false, createdAt: '2026-11-26T00:00:00.000Z', lastActivityAt: '2026-11-26T00:00:00.000Z', cwd: '/x', accountId: 'a', provider: 'claude', unread: false, preview: '' }], removed: [] });
   const asReader = { key: reader.key, runnerId: LAPTOP };
   const runners = (await call(s.ctx, sync.otherRunnersList, asReader)) as { runnerId: string }[];
   assert.ok(runners.some((r) => r.runnerId === MAIN), 'the main Mac is listed');
   assert.ok(!runners.some((r) => r.runnerId === LAPTOP), 'not itself');
-  await call(s.ctx, sync.otherRunnersThreads, asReader);
-  await call(s.ctx, sync.threadIndexSince, { key: reader.key, runners: [{ runnerId: MAIN }] });
+  const others = (await call(s.ctx, sync.otherRunnersThreads, asReader)) as { threads: { runnerId: string; threadId: string }[] };
+  assert.ok(others.threads.some((r) => r.runnerId === MAIN && r.threadId === 'T1'), 'the seeded row comes back from otherRunnersThreads');
+  const since = (await call(s.ctx, sync.threadIndexSince, { key: reader.key, runners: [{ runnerId: MAIN }] })) as { runnerId: string; threadId: string }[];
+  assert.ok(since.some((r) => r.runnerId === MAIN && r.threadId === 'T1'), 'and from threadIndexSince');
   const tail = (await call(s.ctx, relay.remoteTail, { key: reader.key, threadId: 'T1' })) as { messages: { text: string }[] };
   assert.deepEqual(tail.messages.map((m) => m.text), ['hello from main']);
   assert.equal(((await call(s.ctx, relay.remoteMessages, { key: reader.key, threadId: 'T1' })) as { messages: unknown[] }).messages.length, 1);
@@ -134,5 +135,4 @@ test('listRunnerKeys shows reads', async () => {
   const { keys } = (await call(s.ctx, sync.listRunnerKeys, { key: OWNER })) as { keys: { runnerId: string; reads?: boolean }[] };
   assert.equal(keys.find((k) => k.runnerId === LAPTOP)!.reads, true);
   assert.equal(keys.find((k) => k.runnerId === MINI)!.reads, undefined);
-  void sha256;
 });
