@@ -83,4 +83,11 @@ class StartRequestTest {
         val cancelled = FakeTransport().apply { queries = { _, _ -> throw kotlinx.coroutines.CancellationException("gone") } }
         assertFailsWith<kotlinx.coroutines.CancellationException> { PhoneBackend(cancelled, "tok").readStartRequest("t1", "a1") }
     }
+
+    @Test fun aReadThatNeverAnswersIsUnreadableAfterTheTimeout() = runTest {
+        val hung = object : ConvexTransport by FakeTransport() {
+            override suspend fun query(name: String, args: Map<String, kotlinx.serialization.json.JsonElement>): String = kotlinx.coroutines.awaitCancellation()
+        }
+        assertEquals(StartRequestRead.Unreadable, PhoneBackend(hung, "tok").readStartRequest("t1", "a1"))
+    }
 }

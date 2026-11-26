@@ -248,6 +248,7 @@ fun StartRequestCard(vm: ThreadViewModel, card: PendingApproval.Approval, tapped
                 Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 1.5.dp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                Pill("Don't", { vm.respond(card.id, ApprovalOption.DENY) }, Modifier.fillMaxWidth(), tint = LocalSignals.current.failed, spinning = tapped == ApprovalOption.DENY.wire, enabled = tapped == null)
             }
             return
         }

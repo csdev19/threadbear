@@ -1,6 +1,7 @@
 package com.mikerosoft.threadbear.kit
 
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -84,10 +85,14 @@ sealed interface StartRequestRead {
     data object Unreadable : StartRequestRead
 }
 
-suspend fun PhoneBackend.readStartRequest(threadId: String, approvalId: String): StartRequestRead = try {
-    startRequest(threadId, approvalId)?.let { StartRequestRead.Startable(it) } ?: StartRequestRead.NotStartable
+/** A read that takes longer than [timeoutMs] is [StartRequestRead.Unreadable], which offers Try again and Don't. */
+suspend fun PhoneBackend.readStartRequest(threadId: String, approvalId: String, timeoutMs: Long = START_REQUEST_READ_TIMEOUT_MS): StartRequestRead = try {
+    withTimeoutOrNull(timeoutMs) { startRequest(threadId, approvalId)?.let { StartRequestRead.Startable(it) } ?: StartRequestRead.NotStartable }
+        ?: StartRequestRead.Unreadable
 } catch (e: CancellationException) {
     throw e
 } catch (_: Exception) {
     StartRequestRead.Unreadable
 }
+
+const val START_REQUEST_READ_TIMEOUT_MS = 15_000L
