@@ -373,7 +373,7 @@ test('a job reply waits for the turn final assistant row, and is sent once: a la
   assert.deepEqual(fr.watching(), []);
 });
 
-test("a job reply is not sent if the other runner of a handover passed it on meanwhile, nor past the day's cap", async () => {
+test("a job reply is not sent if the other runner of a handover passed it on meanwhile", async () => {
   const dir = tmpDir('far-reports-job-meanwhile');
   const f = fake(dir);
   const fr = f.make();
@@ -398,20 +398,47 @@ test("a job reply is not sent if the other runner of a handover passed it on mea
   assert.equal(f.there.length, 0, 'passed on meanwhile: not sent again');
 });
 
-test("a job reply is not sent past the day's cap, and the watch is forgotten", async () => {
-  const dir = tmpDir('far-reports-job-cap');
+test("a job reply is not sent past the day's cap, which real attempts with a lost acknowledgement reach, and the watch is forgotten", async () => {
+  const f = fake();
+  f.s.failThere = true;
+  f.s.failWith = new Error('subscription closed');
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  for (let i = 0; i < 80 && fr.watching().length; i++) await f.tick(fr, 16 * MIN);
+  assert.equal(f.s.sends, 40, 'stopped at the cap');
+  assert.ok(f.s.warns.some((w) => /not passing on another reply/.test(w)));
+  assert.deepEqual(fr.watching(), []);
+});
+
+test('a job send that was never queued does not count toward the cap', async () => {
+  const dir = tmpDir('far-reports-job-notqueued');
+  const f = fake(dir);
+  f.s.failThere = true;
+  f.s.failWith = notSent(new Error('offline')) as Error;
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  for (let i = 0; i < 6; i++) await f.tick(fr, 16 * MIN);
+  assert.ok(f.s.sends >= 3);
+  const recs = JSON.parse(fs.readFileSync(path.join(dir, 'far-reports.json'), 'utf8')) as { sends?: number[] }[];
+  assert.deepEqual(recs[0]!.sends ?? [], []);
+});
+
+test('a job reply is not sent when the other runner sent it and forgot the watch meanwhile', async () => {
+  const dir = tmpDir('far-reports-job-deleted');
   const f = fake(dir);
   const fr = f.make();
   fr.add(JOB);
-  const file = path.join(dir, 'far-reports.json');
-  const recs = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>[];
-  recs[0]!.sends = Array.from({ length: 40 }, () => START);
-  fs.writeFileSync(file, JSON.stringify(recs));
   f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
   await f.tick(fr);
+  f.s.onRows = () => {
+    f.s.onRows = undefined;
+    fs.writeFileSync(path.join(dir, 'far-reports.json'), '[]');
+  };
   await f.tick(fr);
-  assert.equal(f.there.length, 0);
-  assert.ok(f.s.warns.some((w) => /not passing on another reply/.test(w)));
+  assert.equal(f.there.length, 0, 'sent and forgotten by the other: not sent again');
+  assert.equal(f.s.sends, 0);
   assert.deepEqual(fr.watching(), []);
 });
 

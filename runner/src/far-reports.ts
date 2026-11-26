@@ -375,12 +375,17 @@ export class FarReports {
         }
         // Passed on meanwhile by the other runner of a handover.
         const there = this.read().get(rec.threadId);
-        if ((there && mark(there) !== before) || !this.deps.active()) return true;
+        // (Gone from the file: the other runner sent it and forgot the watch.)
+        if (!there) return false;
+        if (mark(there) !== before || !this.deps.active()) return true;
         rec.sends = (rec.sends ?? []).filter((t) => now - t < 24 * 3600_000);
         if (rec.sends.length >= MAX_PER_DAY) {
           this.deps.log.warn('not passing on another reply from that thread today', { threadId: rec.threadId, starter: rec.starter });
           return false;
         }
+        // Counted before it goes: any try that may have reached the asking
+        // thread counts, so a lost acknowledgement can't repeat without end.
+        rec.sends.push(now);
         try {
           await job.send(to, rec.starter, jobReportText({ job: job.name, threadId: rec.threadId, runnerName: rec.runnerName, reply, mayRepeat: rec.maybeSent, movedOn }));
         } catch (e) {
@@ -393,6 +398,7 @@ export class FarReports {
           rec.failedAt = failedAt;
           // Not queued: nothing came of it. Anything else may have been taken.
           if (!wasNotSent(e)) rec.maybeSent = true;
+          else rec.sends.pop();
           rec.fails = (rec.fails ?? 0) + 1;
           // Settled already: the next try sends without another look first.
           rec.pending = `${turn}:${hash(reply)}`;
