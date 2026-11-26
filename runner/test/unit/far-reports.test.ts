@@ -9,6 +9,7 @@ import path from 'node:path';
 import { FarReports, farReportText, jobReportText, replyOf, turnsOf, type FarRow } from '../../src/far-reports.ts';
 import { AGENT_MESSAGE_PREFIX, sentByAgent } from '../../src/protocol.ts';
 import { senderPrefix } from '../../src/runner/nested.ts';
+import { notSent } from '../../src/relay.ts';
 import { tmpDir } from '../helpers/fakes.ts';
 
 const START = Date.parse('2026-11-20T10:00:00Z');
@@ -38,6 +39,7 @@ function fake(dir = tmpDir('far-reports')) {
     failDeliver: false,
     jobsOn: true,
     failThere: false,
+    failWith: undefined as Error | undefined,
     sends: 0,
     warns: [] as string[],
     onRows: undefined as (() => void) | undefined,
@@ -64,7 +66,7 @@ function fake(dir = tmpDir('far-reports')) {
       jobReports: () => s.jobsOn,
       deliverThere: async (runnerId, threadId, text) => {
         s.sends++;
-        if (s.failThere) throw new Error('offline');
+        if (s.failThere) throw s.failWith ?? new Error('offline');
         there.push({ runnerId, threadId, text });
       },
       active: () => s.active,
@@ -518,4 +520,37 @@ test('a job reply that keeps failing is tried less often, and given up on after 
   await f.tick(fr, 25 * 3600_000);
   assert.deepEqual(fr.watching(), [], 'given up');
   assert.equal(f.s.warns.filter((w) => /giving up/.test(w)).length, 1, 'said once');
+});
+
+test('a job reply whose first try failed after the command was queued is retried saying it may repeat; one that was never queued is not', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  // Never queued (the Mac is offline): a plain retry.
+  f.s.failThere = true;
+  f.s.failWith = notSent(new Error('offline'));
+  await f.tick(fr);
+  await f.tick(fr);
+  f.s.failThere = false;
+  await f.tick(fr, 2 * MIN);
+  assert.equal(f.there.length, 1);
+  assert.doesNotMatch(f.there[0]!.text, /may repeat/);
+
+  const g = fake();
+  const gr = g.make();
+  gr.add(JOB);
+  g.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  // Queued, then the subscription broke: outcome unknown.
+  g.s.failThere = true;
+  g.s.failWith = new Error('subscription closed');
+  await g.tick(gr);
+  await g.tick(gr);
+  g.s.failThere = false;
+  await g.tick(gr, 2 * MIN);
+  assert.equal(g.there.length, 1);
+  const first = g.there[0]!.text.split('\n')[0]!;
+  assert.match(first, /may repeat a report already sent/);
+  assert.equal(senderPrefix(g.there[0]!.text), 'ab01cd23');
+  assert.match(g.there[0]!.text, /\n\nDone\.$/);
 });
