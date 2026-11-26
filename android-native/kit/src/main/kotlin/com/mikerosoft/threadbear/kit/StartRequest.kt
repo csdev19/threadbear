@@ -26,6 +26,20 @@ data class StartRequest(
     /** Who's asking: the Mac's name, or its id when the backend didn't say. */
     val asking: String get() = runnerName?.takeIf { it.isNotBlank() } ?: runnerId
 
+    /**
+     * The access the new thread will really have, never a blank: the relay
+     * starts a request filed with no mode on Full access (convex/relay.ts,
+     * "create"), so the phone says so. Same names as the Mac app's request card.
+     */
+    val permissionLine: String get() = when (permissionMode) {
+        null, "" -> "Full access (none asked for)"
+        "full" -> "Full access"
+        "ask" -> "Asks before edits"
+        "auto" -> "Auto"
+        "plan" -> "Plan first"
+        else -> "Unknown ($permissionMode)"
+    }
+
     companion object {
         /** The approval name of the card a request shows on its asking thread. */
         const val CARD_NAME = "threadbear.start_thread"

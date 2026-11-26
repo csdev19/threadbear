@@ -56,4 +56,16 @@ class StartRequestTest {
         val none = CommandStatus.read(parseJson("""{"state":"done"}""") as kotlinx.serialization.json.JsonObject)
         assertNull(none.started)
     }
+
+    private fun mode(m: String?) = StartRequest("d", "q", "t", "r", "bruce", "go", permissionMode = m).permissionLine
+
+    @Test fun permissionLineAlwaysNamesTheModeThatWillApply() {
+        assertEquals("Full access (none asked for)", mode(null))
+        assertEquals("Full access (none asked for)", mode(""))
+        assertEquals("Full access", mode("full"))
+        assertEquals("Asks before edits", mode("ask"))
+        assertEquals("Auto", mode("auto"))
+        assertEquals("Plan first", mode("plan"))
+        assertEquals("Unknown (weird)", mode("weird"))
+    }
 }
