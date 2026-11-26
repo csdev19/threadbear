@@ -497,8 +497,11 @@ runner that's this one is the usual create.
   there at all stays the `missingFolder` decline below. Then it starts it
   as Start it on the Mac does (`requests.answer` with the machine the
   request names and the fingerprint computed there, the claim, the header,
-  the folder rules and a `missingFolder` declined as above), and the
-  command's `result` is the thread it started.
+  the folder rules and a `missingFolder` declined as above), except that a
+  request filed with no `permissionMode` starts with `full`, explicitly, not
+  with the destination's own default: the phone's card says "Full access
+  (none asked for)", and what it showed is what the thread gets. The Mac's
+  own Start it is unchanged. The command's `result` is the thread it started.
   What the phone's approval binds is the filed row, by `docId` (a request
   filed again under the same id is another row; the phone never sees the
   fingerprint), and, for a start on the main Mac, the folder exactly as

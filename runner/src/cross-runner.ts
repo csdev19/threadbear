@@ -278,7 +278,9 @@ export class CrossRunner {
         throw bad(`That request's folder is ${filed}, which isn't a folder on the main Mac as named. Answer it on the Mac, where the card shows where it would start.`);
       }
     }
-    return this.answer(threadId, approvalId, true, target.id, shown);
+    // The phone's card says Full access for a request that asked for no mode,
+    // so that is what this start binds, whatever the destination defaults to.
+    return this.answer(threadId, approvalId, true, target.id, shown, 'full');
   }
 
   private place(row: RunnerRequestRow): Place | undefined {
@@ -288,8 +290,12 @@ export class CrossRunner {
     return folder && real ? { folder, real } : { missing: row.cwd };
   }
 
-  /** requests.answer, on the main Mac: start it (on `runnerId`, or the one it asked for) or say no. */
-  async answer(threadId: string, approvalId: string, allow: boolean, runnerId?: string, shown?: string): Promise<{ thread?: { id: string; runnerId: string; runnerName: string } }> {
+  /**
+   * requests.answer, on the main Mac: start it (on `runnerId`, or the one it asked for) or say no.
+   * `modeIfNone` is the permission mode a request that asked for none starts
+   * with; without it the destination's own default applies (the Mac's card).
+   */
+  async answer(threadId: string, approvalId: string, allow: boolean, runnerId?: string, shown?: string, modeIfNone?: string): Promise<{ thread?: { id: string; runnerId: string; runnerName: string } }> {
     const backend = this.mustOwn();
     // One answer to a request at a time, Start it or Don't, held from before
     // anything is read: two overlapping ones could each see a lost claim as
@@ -298,13 +304,13 @@ export class CrossRunner {
     if (this.starting.has(approvalId)) throw bad('That request is already being answered.');
     this.starting.add(approvalId);
     try {
-      return await this.answerNow(backend, threadId, approvalId, allow, runnerId, shown);
+      return await this.answerNow(backend, threadId, approvalId, allow, runnerId, shown, modeIfNone);
     } finally {
       this.starting.delete(approvalId);
     }
   }
 
-  private async answerNow(backend: ReturnType<CrossRunner['mustOwn']>, threadId: string, approvalId: string, allow: boolean, runnerId?: string, shown?: string): Promise<{ thread?: { id: string; runnerId: string; runnerName: string } }> {
+  private async answerNow(backend: ReturnType<CrossRunner['mustOwn']>, threadId: string, approvalId: string, allow: boolean, runnerId?: string, shown?: string, modeIfNone?: string): Promise<{ thread?: { id: string; runnerId: string; runnerName: string } }> {
     const row = await this.row(threadId, approvalId);
     // A claim of ours whose answer never came back (a dropped connection):
     // nothing was started under it, so Start it can carry on from there.
@@ -345,7 +351,8 @@ export class CrossRunner {
       if (!target) throw bad(`No runner called ${runnerId ?? row.target}. Pick one.`);
       // Said before claiming, so it can be tried again once that Mac is back.
       if (!target.self && target.online === false) throw other(`${target.name} is offline. Try again once it's back.`);
-      const { text, title, model, effort, permissionMode, why } = row;
+      const { text, title, model, effort, why } = row;
+      const permissionMode = row.permissionMode ?? modeIfNone;
       if (target.self && place && 'missing' in place) {
         // Nothing Mike can pick here would make it right, and the agent
         // waits an hour for a card that can't start: it's told why
