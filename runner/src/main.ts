@@ -891,6 +891,7 @@ async function main(): Promise<void> {
     // Virtual runners in Runs on (thread-index.ts services); never in a box.
     virtualRunners: () => !box && experimentOn(cfg.home, 'virtualRunners'),
     followProblem: () => (updaterReady ? updater.status().followProblem : undefined),
+    phoneStarts: () => experimentOn(cfg.home, JOB_STARTER_EXPERIMENT),
     updateFailed: () => reportedFailure(),
     // A thread past a move's switch is the other runner's: never written
     // from here again (runner/moves.ts).

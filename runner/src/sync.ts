@@ -394,6 +394,10 @@ export const RUNNER_STATS_API_VERSION = 45;
 // From this one a heartbeat can carry `followProblem` (follow-origin.ts); an
 // older backend's validator would turn the heartbeat down.
 export const FOLLOW_PROBLEM_API_VERSION = 67;
+// From this one a heartbeat can carry `phoneStarts`, the main Mac saying it
+// takes the phone's Start it (multiMacJobs on); an older backend's validator
+// would turn the heartbeat down.
+export const PHONE_STARTS_API_VERSION = 106;
 // From this one a heartbeat can carry `updateFailed`, a following machine's
 // failed update for the main Mac to fix (fix-update.ts), and the main key
 // reads it with the other runners' rows. An older backend's validator would
@@ -780,6 +784,9 @@ export type SyncDeps = {
   // This following machine's failed update, for the main Mac to fix
   // (fix-update.ts reported()).
   updateFailed?: () => UpdateFailure | undefined;
+  // This machine starts a request from the phone (the multiMacJobs experiment
+  // is on), for the heartbeat: the backend offers the phone Start it only then.
+  phoneStarts?: () => boolean;
   // For the sidebar table (thread-index.ts): telling the app about other
   // runners' threads, and the data dir their tokens are copied into.
   publish?: (n: Notification) => void;
@@ -4374,6 +4381,7 @@ export class ConvexSync {
       ...(this.stats?.pressure && (this.backendApiVersion ?? 0) >= RUNNER_STATS_API_VERSION ? { pressure: this.stats.pressure } : {}),
       ...followProblem,
       ...updateFailed,
+      ...((this.backendApiVersion ?? 0) >= PHONE_STARTS_API_VERSION && this.deps.phoneStarts?.() ? { phoneStarts: true } : {}),
       // A box's machine (boxes.ts exchange's machineId): a box's backend is
       // always new enough, and only a box sends it.
       ...(this.deps.box?.machineId ? { machineId: this.deps.box.machineId } : {}),

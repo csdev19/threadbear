@@ -464,7 +464,13 @@ runner that's this one is the usual create.
   unless the request is still `pending`, is the asking thread's, and names
   no job; else the row's `docId`, `requestId`, `threadId`, `runnerId`,
   `runnerName`, `target`, `text`, and the `title`, `cwd`, `model`, `effort`,
-  `permissionMode`, `why` it was filed with, and `createdAt`. Start it is
+  `permissionMode`, `why` it was filed with, and `createdAt`. It is also
+  `null` while the main Mac's last heartbeat didn't carry `phoneStarts: true`
+  (backend API 106; the runner sends it only while the `multiMacJobs`
+  experiment is on, and only to a backend that takes it), so with the
+  experiment off, or on a main Mac too old to know the command, the phone
+  shows the plain approval card and no Start it. A heartbeat without it
+  takes it away. Start it is
   `phone:startRequestNow({ token, threadId, approvalId, docId })`, which
   queues a `startRequest` command (args `threadId`, `approvalId`, `docId`)
   to the main Mac, with no `threadId` of its own: the asking thread is on
