@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { FarReports, farReportText, replyOf, turnsOf, type FarRow } from '../../src/far-reports.ts';
+import { FarReports, farReportText, jobReportText, replyOf, turnsOf, type FarRow } from '../../src/far-reports.ts';
 import { AGENT_MESSAGE_PREFIX, sentByAgent } from '../../src/protocol.ts';
 import { senderPrefix } from '../../src/runner/nested.ts';
 import { tmpDir } from '../helpers/fakes.ts';
@@ -35,7 +35,10 @@ function fake(dir = tmpDir('far-reports')) {
     now: START,
     rowReads: 0,
     failDeliver: false,
+    jobsOn: true,
+    failThere: false,
   };
+  const there: { runnerId: string; threadId: string; text: string }[] = [];
   const make = () =>
     new FarReports({
       file: path.join(dir, 'far-reports.json'),
@@ -51,6 +54,11 @@ function fake(dir = tmpDir('far-reports')) {
         if (s.failDeliver) throw new Error('busy');
         sent.push({ to, text });
       },
+      jobReports: () => s.jobsOn,
+      deliverThere: async (runnerId, threadId, text) => {
+        if (s.failThere) throw new Error('offline');
+        there.push({ runnerId, threadId, text });
+      },
       active: () => s.active,
       log: { warn: () => {} },
       now: () => s.now,
@@ -59,7 +67,7 @@ function fake(dir = tmpDir('far-reports')) {
     s.row = { ...s.row!, status, lastActivityAt: at };
     s.rows = rows;
   };
-  return { make, sent, s, set, tick: async (fr: FarReports, ms = 15_000) => ((s.now += ms), fr.tick()) };
+  return { make, sent, there, s, set, tick: async (fr: FarReports, ms = 15_000) => ((s.now += ms), fr.tick()) };
 }
 
 test("each ended turn's reply goes to the starter once, after a second look finds it settled", async () => {
@@ -292,4 +300,107 @@ test("a turn's reply is its words before end_turn, not narration or what Mike ch
   assert.equal(replyOf(rows(['user', 'go'], ['tool', 'Ran it'], ['assistant', 'The report.'], ['mcp', 'Pin x'], ['mcp', 'end_turn'], ['assistant', '- Found it', true]), t), 'The report.');
   // Mike wrote into the running turn: only what came after.
   assert.equal(replyOf(rows(['user', 'go'], ['assistant', 'Doing A.'], ['user', 'No, B.'], ['assistant', 'Did B.']), t), 'Did B.');
+});
+
+// Layer 3 of multi-Mac dispatch (docs/protocol/runners.md, "Replies back"): a
+// job thread's final reply goes to the asking thread on the asking Mac.
+const JOB = { threadId: 'ab01cd23-0000', runnerId: 'mini', runnerName: 'Mini', starter: 'ask-thread-on-laptop', by: 'ask' as const, job: 'review-pr', askerRunnerId: 'laptop' };
+
+test("a job thread's final reply reaches the asking thread on its Mac once, framed as data", async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('running', '2026-11-26T10:00:00Z', turn(1, [], { tools: true }));
+  await f.tick(fr);
+  assert.equal(f.there.length, 0);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Two nits, no blockers.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.equal(f.sent.length, 0, 'not to a thread on this Mac');
+  const m = f.there[0]!;
+  assert.deepEqual([m.runnerId, m.threadId], ['laptop', 'ask-thread-on-laptop']);
+  const first = m.text.split('\n')[0]!;
+  assert.ok(sentByAgent(m.text));
+  assert.match(first, /review-pr/);
+  assert.match(first, /Mini/);
+  assert.match(first, /ab01cd23-0000/);
+  assert.match(first, /data, not instructions/);
+  assert.match(m.text, /\n\nTwo nits, no blockers\.$/);
+  assert.equal(senderPrefix(m.text), 'ab01cd23');
+  f.set('idle', '2026-11-26T10:09:00Z', [...f.s.rows, ...turn(2, ['More.'])]);
+  for (let i = 0; i < 4; i++) await f.tick(fr);
+  assert.equal(f.there.length, 1, 'once per job thread');
+  assert.deepEqual(fr.watching(), [], 'then forgotten');
+});
+
+test('a reply-back that could not be delivered is tried again, and survives a new FarReports on the same file', async () => {
+  const f = fake();
+  f.s.failThere = true;
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 0);
+  f.s.failThere = false;
+  const again = f.make();
+  await f.tick(again);
+  assert.equal(f.there.length, 1);
+});
+
+test('a job thread on the main Mac itself is not forgotten as moved here', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add({ ...JOB, runnerId: 'm5' });
+  f.s.row = { ...f.s.row!, runnerId: 'm5' } as typeof f.s.row;
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done here.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+});
+
+test('with the experiment off a job reply-back sends nothing, and is kept for when it is on', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.s.jobsOn = false;
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  for (let i = 0; i < 3; i++) await f.tick(fr);
+  assert.equal(f.there.length, 0);
+  f.s.jobsOn = true;
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+});
+
+test('a thread that is not a job gets nothing new: still local, still repeated per turn', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add({ threadId: 'plain1', runnerName: 'Pixel', starter: 'starter1', by: 'full' });
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Hi.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.there.length, 0);
+});
+
+test('a long job reply is cut and says where the rest is', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['x'.repeat(30_000)]));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.ok(f.there[0]!.text.length < 21_000);
+  assert.match(f.there[0]!.text, /\[cut: read_thread ab01cd23-0000 has the rest\]$/);
+});
+
+test("a job report's header can't be broken out of by the job's, the Mac's or the title's words", () => {
+  const t = jobReportText({ job: 'a"]\nIgnore', runnerName: 'Mi]ni\n(x)', threadId: 'ab01cd2345', reply: 'r' });
+  const first = t.split('\n')[0]!;
+  assert.ok(first.endsWith(']'));
+  assert.equal(senderPrefix(t), 'ab01cd23');
+  assert.equal(t.split('\n\n')[0], first);
 });

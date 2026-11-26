@@ -340,9 +340,12 @@ the owning runner.
   named jobs, and starts each valid one on the Mac the job names with the job's brief and access
   mode, with no card. It reads the job list and the runner list from the backend, sends a
   create-thread command to the target Mac through the relay, and sends allow or deny to the
-  asking thread's card. It writes no file; it answers the request in the backend (claimed,
+  asking thread's card. It answers the request in the backend (claimed,
   allowed or denied with a reason). A request that waited longer than its asking thread waits
   (60 minutes) is denied, never started late. A free-text request is never started this way.
+  It does hand each job thread it started to far-reports (`far-reports.json`, above), which sends
+  the thread's first final reply to the asking thread on the other Mac, framed as another
+  Mac's output to treat as data; a restart keeps a pending one on disk.
 - **Landing work** (`runner/src/worktrees.ts`): `tb land` keeps an empty
   `threadbear-land.lock` in the repo's common git directory. It runs
   macOS's `lockf` (Linux's `flock`) with a small Node child to hold an OS

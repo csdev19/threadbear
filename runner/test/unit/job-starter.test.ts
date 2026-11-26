@@ -42,6 +42,7 @@ type Opts = { enabled?: boolean; owner?: boolean; ready?: boolean; jobs?: JobRow
 function fake(rows: JobRequestRow[], opts: Opts = {}) {
   const log: string[] = [];
   const state = new Map<string, { row: JobRequestRow; state: string; claim?: string }>(rows.map((r) => [r.requestId, { row: r, state: 'pending' }]));
+  const watched: Parameters<NonNullable<JobStarterDeps['startedJob']>>[0][] = [];
   const created: { where: string; p: { text: string; permissionMode?: string; cwd?: string; title?: string; model?: string; effort?: string } }[] = [];
   let failAllow = opts.failAllow ?? 0;
   let failClaim = opts.failClaim ?? 0;
@@ -109,10 +110,11 @@ function fake(rows: JobRequestRow[], opts: Opts = {}) {
     respondThere: async (threadId, approvalId, decision, message) => {
       log.push(`respond ${threadId} ${approvalId} ${decision}${message ? ` ${message}` : ''}`);
     },
+    startedJob: (p) => watched.push(p),
     log: { info: () => {}, warn: (m: string) => log.push(`warn ${m}`) },
     now: () => opts.now ?? 2000,
   };
-  return { starter: new JobStarter(deps), log, created, state };
+  return { starter: new JobStarter(deps), log, created, state, watched };
 }
 
 test('AC3: a valid job request starts on the job target id, with the job mode, the filled brief and no folder', async () => {
@@ -486,4 +488,13 @@ test('a claimed request still in this runner\'s own work is not touched', async 
   assert.equal(f.created.length, 1);
   assert.equal(f.state.get(req.requestId)!.state, 'allowed');
   assert.ok(!f.log.some((l) => l.includes(' pending')), f.log.join('\n'));
+});
+
+test('layer 3: a started job thread is handed to the reply-back once, with its asking thread and Mac; a denied request hands nothing', async () => {
+  const req = jobRequest();
+  const bad = jobRequest({ job: 'gone' });
+  const f = fake([req, bad], { failAllow: 1 });
+  await f.starter.tick();
+  await f.starter.tick();
+  assert.deepEqual(f.watched, [{ threadId: 'T-there', runnerId: MINI, runnerName: 'mac-mini', starter: 'L-thread', askerRunnerId: LAPTOP, job: 'capture-evidence' }]);
 });

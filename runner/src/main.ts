@@ -1481,6 +1481,15 @@ async function main(): Promise<void> {
     deliver: (starter, text, ceiling) => {
       runner.send(starter, text, [], { queue: true, ceiling });
     },
+    // A job thread's reply to its asking thread on another Mac: the relay's
+    // send, as Mike's own messages there go (no `from` of the phone's, so the
+    // asking runner holds it to that thread's access as another thread's).
+    // Only with multiMacJobs on (src/job-starter.ts).
+    jobReports: () => experimentOn(cfg.home, JOB_STARTER_EXPERIMENT),
+    // The relay finds the runner the thread is on now, so a move meanwhile is followed.
+    deliverThere: async (_runnerId, threadId, text) => {
+      await relay.call(threadId, 'threads.send', { threadId, text });
+    },
     // Not while sync is off, nor on a draining or stopping runner: its
     // replacement does it.
     active: () => !draining && !stopping && !runner.draining && Boolean(sync.relaySource()),
@@ -1551,6 +1560,7 @@ async function main(): Promise<void> {
       const r = (await relay.create(runnerId, { ...p })) as { thread: { id: string } };
       return { id: r.thread.id };
     },
+    startedJob: (p) => farReports.add({ ...p, by: 'ask' }),
     respondThere: async (threadId, approvalId, decision, message) => {
       await relay.call(threadId, 'approvals.respond', { threadId, approvalId, decision, ...(message ? { message } : {}) });
     },
