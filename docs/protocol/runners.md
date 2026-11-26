@@ -526,6 +526,50 @@ In the backend a request is a state machine (`convex/requestMachine.ts`,
 `relay:decideRequest`'s `state` is that machine's event, and `state`,
 `claim`, `result` and `decidedAt` stay on the row as runners read them.
 
+### Jobs
+
+Added 26 Nov 2026 (backend API 104; the first layer of the
+multi-Mac dispatch design, `docs/specs/2026-11-26-multi-mac-dispatch-design.md`).
+A job is a template the owner wrote on the main Mac for something a
+runner key's Mac may ask the main Mac to start on another Mac. Only the
+owner key writes jobs (`relay:setJobs`, which replaces the whole list and
+checks every field); the owner key and runner keys read them
+(`relay:jobsList`), a box's key doesn't. A job has:
+
+- `name`: unique, `a-z`, `0-9` and `-`, at most 40 characters.
+- `target`: the runner's id, never its name, so a rename or a rebuilt
+  Mac can't send a job somewhere else.
+- `repos`: the repositories it may be asked about, each `owner/name`.
+- `params`: parameter name to its type, one of `repo` (one of `repos`),
+  `branch` (a git ref with no `..`, whitespace, leading `-` or any of
+  `~^:?*[\`, at most 200 bytes) or `int` (a positive whole number of at
+  most 9 digits).
+- `mode`: `ask`, `auto`, `plan` or `full`. Required, with no default: a
+  start with no mode is Full access, so a job is never Full by leaving
+  it out.
+- `perHour`: 1 to 60, how many requests for it the backend takes in an
+  hour, whatever became of them (`tooMany` over it).
+- `brief`: the text the thread starts with, with `{param}` placeholders,
+  at most 4000 bytes, each naming one of the job's `params` (a brace
+  holding anything else, such as JSON, is plain text). The main Mac fills
+  it in; the asking Mac gives values, never text that becomes
+  instructions.
+
+At most 50 jobs, 50 repos a job and 10 parameters a job; a parameter's
+name is `a-z` first, then `a-z`, `0-9` or `_`.
+
+`relay:fileRequest` takes two more fields in `request`, `job` (a job's
+name) and `params` (parameter name to a string). With `job`, the backend
+refuses (`badArgs`) a job that isn't defined, `params` that don't match
+the job's schema (a missing or an extra name, a `repo` not in the job's
+list, a `branch` or an `int` that doesn't fit its rule), a `target`
+other than the job's, any text (`text` is `""`: the brief is the job's),
+and `title`, `cwd`, `model`, `effort`, `permissionMode` and `why` (the
+job decides them). Over the job's `perHour` it refuses with `tooMany`.
+The row keeps `job` and `params`, and `runnerRequest` returns them. A
+request with no `job` is what it was. This layer only files and
+validates: nothing yet starts a job request without a card.
+
 ## Sharing
 
 A thread can be shared by link on the website (docs/website.md, "Sharing"),

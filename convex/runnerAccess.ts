@@ -296,6 +296,10 @@ export const ACCESS: Record<string, Access> = {
   runnerRequest: 'own',
   decideRequest: 'owner',
   closeRequest: 'own',
+  // Jobs (API 104): only the main Mac's key writes what may run unattended; a
+  // runner key reads the list to show and ask for one. A box key may not (BOX_CALLS).
+  setJobs: 'owner',
+  jobsList: 'shared',
   appendBodies: 'own',
   addHeldPicture: 'own',
   // moves.ts (API 64): only the main Mac starts or cancels a move; each

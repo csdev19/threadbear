@@ -14,11 +14,12 @@ import type { OrderedQuery } from 'convex/server';
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import type { DataModel, Doc, Id } from './_generated/dataModel';
 import { checkRunnerId, forbidden, isSeq, MAX_SEQ, ownerFenced, pageLimit, runnerAuth, sha256, withoutCredentials } from './lib';
-import { docBytes, isThreadId, mayTouch, ownThreadOnly } from './runnerAccess';
+import { docBytes, isThreadId, mayTouch, ownThreadOnly, validRunnerId } from './runnerAccess';
 import { queued, request as requestMachine } from './machines';
 import { requestStateFrom } from './requestStates';
 import { steppingFor } from './stepping';
-import { messageButton, usagePool } from './schema';
+import { jobFields, messageButton, usagePool } from './schema';
+import { jobProblem, JOBS_MAX, paramsProblem, type JobDef } from './jobRules';
 import { deleteIfUnused, MAX_COMMAND_FILES, MAX_RUNNER_UPLOAD_BYTES, storageInUse } from './sync';
 import { UPLOAD_CLAIM_MS, newClaim } from './uploads';
 
@@ -591,6 +592,8 @@ const PENDING_LIVE_MS = 2 * 60 * 60 * 1000;
 const REQUESTS_KEPT_MAX = 50;
 // Kept a week, for "what did the cloud ask for", then swept as the runner files more.
 const REQUEST_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+// A job's perHour counts the requests filed for it in this long, whatever their state.
+const JOB_WINDOW_MS = 60 * 60 * 1000;
 const REQUEST_ID = /^[A-Za-z0-9-]{8,64}$/;
 // The asking thread's id goes into the first line the main Mac's runner
 // writes on the new thread, so nothing but an id's characters (isThreadId).
@@ -605,6 +608,9 @@ const requestFields = {
   effort: v.optional(v.string()),
   permissionMode: v.optional(v.string()),
   why: v.optional(v.string()),
+  // API 104: a request for a named job (Jobs, below) with the values for its parameters.
+  job: v.optional(v.string()),
+  params: v.optional(v.record(v.string(), v.string())),
 };
 
 const requestOut = v.object({
@@ -638,7 +644,11 @@ export const fileRequest = mutation({
     if (caller.owner) throw new ConvexError({ kind: 'badArgs', message: "The main Mac's runner starts threads on other runners itself." });
     const bad = (why: string) => new ConvexError({ kind: 'badArgs', message: why });
     if (!REQUEST_ID.test(requestId)) throw bad('a request id is 8 to 64 letters, digits or dashes');
-    if (!request.text.trim()) throw bad('a new thread needs text');
+    // A job's brief is the job's: a request naming one carries no text of its own.
+    if (request.job === undefined) {
+      if (!request.text.trim()) throw bad('a new thread needs text');
+      if (request.params !== undefined) throw bad('params go with a job');
+    }
     if (docBytes(request.text) > REQUEST_TEXT_MAX) throw bad(`the brief is over ${REQUEST_TEXT_MAX} bytes`);
     for (const f of ['title', 'cwd', 'model', 'effort', 'permissionMode', 'why'] as const) {
       if (request[f] !== undefined && docBytes(request[f]) > REQUEST_FIELD_MAX) throw bad(`${f} is too long`);
@@ -650,6 +660,24 @@ export const fileRequest = mutation({
     if (!t || !mayTouch(caller, t.runnerId, threadId)) throw forbidden("ask for that: the thread isn't this runner's");
     if (await ctx.db.query('runnerRequests').withIndex('by_requestId', (q) => q.eq('requestId', requestId)).first()) throw bad('that request id is taken');
     const now = Date.now();
+    // A job request: the job is one the owner defined, the parameters fit it, and the
+    // asking Mac supplies nothing else (the job pins what it runs and how).
+    let jobRow: Doc<'jobs'> | null = null;
+    if (request.job !== undefined) {
+      jobRow = await ctx.db.query('jobs').withIndex('by_name', (q) => q.eq('name', request.job!)).first();
+      if (!jobRow) throw bad(`there is no job "${request.job.slice(0, 64)}"`);
+      if (request.text !== '') throw bad("a job request has no text: the brief is the job's");
+      for (const f of ['title', 'cwd', 'model', 'effort', 'permissionMode', 'why'] as const) {
+        if (request[f] !== undefined) throw bad(`a job request has no ${f}: the job decides it`);
+      }
+      if (target !== jobRow.target) throw bad("a job request names the job's own target");
+      const wrong = paramsProblem(jobRow, request.params ?? {});
+      if (wrong) throw bad(wrong);
+      // Every request for it in the last hour, whatever became of it. Those are never the
+      // ones made room for below, so filing others can't make this count go down.
+      const recent = await ctx.db.query('runnerRequests').withIndex('by_job', (q) => q.eq('job', jobRow!.name).gte('createdAt', now - JOB_WINDOW_MS)).take(jobRow.perHour);
+      if (recent.length >= jobRow.perHour) throw new ConvexError({ kind: 'tooMany', message: `The job "${jobRow.name}" takes at most ${jobRow.perHour} requests an hour` });
+    }
     // Oldest first: what's past a week goes, and then the oldest until
     // there's room, except one the main Mac is starting now.
     const rows = await ctx.db.query('runnerRequests').withIndex('by_runnerId', (q) => q.eq('runnerId', caller.runnerId)).take(REQUESTS_KEPT_MAX + 10);
@@ -658,6 +686,8 @@ export const fileRequest = mutation({
       const old = now - r.createdAt > REQUEST_KEEP_MS;
       if (!old && kept < REQUESTS_KEPT_MAX) break;
       if (!old && r.state === 'claimed') continue;
+      // A job request of the last hour still counts toward its job's cap, so it isn't made room for.
+      if (!old && r.job !== undefined && now - r.createdAt < JOB_WINDOW_MS) continue;
       // A box makes room among its own thread's requests only.
       if (!ownThreadOnly(caller, r.threadId)) continue;
       await ctx.db.delete(r._id);
@@ -743,6 +773,49 @@ export const closeRequest = mutation({
     if (steppingFor('requestState')) await asBefore(ctx, r, { state: 'closed', decidedAt: Date.now() });
     else await requestMachine.send(ctx, r._id, { type: 'CLOSE' });
     return null;
+  },
+});
+
+// ------------------------------------------------------------ jobs
+// Named jobs (docs/protocol/runners.md, "Jobs"): templates the owner defines
+// for what a runner key's Mac may ask the main Mac to start elsewhere. Only the
+// owner key writes them, so a Mac that can be steered by injected text
+// can't change what runs without a card; a runner key reads them to show and
+// ask for one. Nothing in a job is secret (a runner id, repo names, parameter
+// kinds, a brief template). A box key does neither.
+
+const jobOut = v.object({ ...jobFields, updatedAt: v.number() });
+
+/** Replaces the whole list of jobs. Every job is checked first, so a bad one changes nothing. */
+export const setJobs = mutation({
+  args: { key: v.string(), jobs: v.array(v.object(jobFields)) },
+  returns: v.null(),
+  handler: async (ctx, { key, jobs }) => {
+    await runnerAuth(ctx, key, 'setJobs');
+    const bad = (why: string) => new ConvexError({ kind: 'badArgs', message: why });
+    if (jobs.length > JOBS_MAX) throw bad(`at most ${JOBS_MAX} jobs`);
+    const names = new Set<string>();
+    for (const j of jobs) {
+      const wrong = jobProblem(j as JobDef, validRunnerId);
+      if (wrong) throw bad(wrong);
+      if (names.has(j.name)) throw bad(`two jobs are named "${j.name}"`);
+      names.add(j.name);
+    }
+    for (const old of await ctx.db.query('jobs').take(JOBS_MAX + 10)) await ctx.db.delete('jobs', old._id);
+    const now = Date.now();
+    for (const j of jobs) await ctx.db.insert('jobs', { ...j, updatedAt: now });
+    return null;
+  },
+});
+
+/** The jobs, by name: for the owner and for a runner key (not a box's). */
+export const jobsList = query({
+  args: { key: v.string() },
+  returns: v.array(jobOut),
+  handler: async (ctx, { key }) => {
+    await runnerAuth(ctx, key, 'jobsList');
+    const rows = await ctx.db.query('jobs').withIndex('by_name').take(JOBS_MAX + 10);
+    return rows.map(({ _id, _creationTime, ...j }) => j);
   },
 });
 

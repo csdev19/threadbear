@@ -44,6 +44,21 @@ export const messageButton = v.object({
 
 export const usagePool = v.object({ id: v.string(), title: v.string(), accountIds: v.array(v.string()) });
 
+// A job: a template the owner wrote for something a runner key's Mac may ask
+// the main Mac to start on another Mac (docs/protocol/runners.md, "Jobs").
+// convex/jobRules.ts checks what these shapes can't (the characters, the
+// ranges); relay.ts setJobs is the only writer.
+export const jobFields = {
+  name: v.string(), // unique: a-z, 0-9 and -, at most 40
+  target: v.string(), // the runner's id, never its name
+  repos: v.array(v.string()), // "owner/name"
+  params: v.record(v.string(), v.union(v.literal('repo'), v.literal('branch'), v.literal('int'))),
+  // Required, no default: a start with no mode is Full access (relay.ts commandArgs).
+  mode: v.union(v.literal('ask'), v.literal('auto'), v.literal('plan'), v.literal('full')),
+  perHour: v.number(), // 1 to 60
+  brief: v.string(), // {param} placeholders, at most 4000 bytes
+};
+
 export const threadFields = {
   threadId: v.string(),
   runnerId: v.string(),
@@ -899,6 +914,13 @@ export const appSchema = defineSchema({
     // The Machines page's counts and lists of moves in a state (viewer.ts).
     .index('by_move_state', ['moveState.kind']),
 
+  // The owner's named jobs (docs/protocol/runners.md, "Jobs"): written with the
+  // owner key only (relay:setJobs), read by the owner and runner keys.
+  jobs: defineTable({
+    ...jobFields,
+    updatedAt: v.number(),
+  }).index('by_name', ['name']),
+
   // A runner on a runner key asking for a new thread on another runner
   // (docs/protocol/runners.md, "Asking another runner"). It can't queue work there
   // itself, so it files the whole request here, where nothing can change it
@@ -933,8 +955,13 @@ export const appSchema = defineSchema({
     // The main Mac's runner's id for its claim (API 85): the same claim
     // asking again gets it, so a claim whose answer was lost can still start.
     claim: v.optional(v.string()),
+    // API 104: a request for a named job (jobs), with the values for its
+    // parameters. Then `text` is "": the brief is the job's.
+    job: v.optional(v.string()),
+    params: v.optional(v.record(v.string(), v.string())),
   })
     .index('by_requestId', ['requestId'])
+    .index('by_job', ['job', 'createdAt'])
     .index('by_runnerId', ['runnerId'])
     .index('by_runner_state', ['runnerId', 'state'])
     // The Machines page's counts and lists of requests in a state (viewer.ts).

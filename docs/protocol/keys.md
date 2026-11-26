@@ -476,10 +476,12 @@ anyone's); "any runner" is any good key. Anything not sorted is owner only.
 | `remotePools` | owner only | another runner's effective pool membership, from API 101 |
 | `remoteBody` | owner only | one tool's output on another runner's thread (full sync) |
 | `picturesAtSeqs` | owner only | the pictures pasted into the messages at up to 50 seqs of another runner's thread (`replyImages` with `src` `picture:N`), each with its file's URL (API 87) |
-| `fileRequest` | its own | a request for a thread on another runner, from one of its own threads (Asking another runner); never changed after; at most 5 waiting (one over two hours old doesn't count) and 50 kept, oldest going first, for a week at most |
+| `fileRequest` | its own | a request for a thread on another runner, from one of its own threads (Asking another runner); never changed after; at most 5 waiting (one over two hours old doesn't count) and 50 kept, oldest going first, for a week at most. With `job` and `params` it asks for a named job instead: the job must exist, the parameters must fit its schema, `text` is empty, and the job's `perHour` caps how many are filed (a job request filed in the last hour is never one of those made room for) |
 | `runnerRequest` | its own | a request its runner filed; the owner reads any |
 | `decideRequest` | owner only | claims a pending request, marks a claimed one allowed (with where it started) or hands it back, or denies a pending one |
 | `closeRequest` | its own | closes a pending request its runner filed, once its card has closed without it starting |
+| `setJobs` | owner only | replaces the whole list of jobs (Asking another runner, "Jobs"); every field is checked, and a runner key can never change what runs unattended |
+| `jobsList` | any runner | the jobs, so a runner key's Mac can show and ask for them; a box's key may not read it, and it holds no secrets (a target runner id, repo names, parameter types, a brief template) |
 | `appendBodies` | its own | each body's thread row is the key's runner's; a key's total is capped, oldest going first |
 | `addHeldPicture` | its own | one tool picture tapped on the website, on its own thread, gone after a day |
 | `startMove` | owner only | starts moving a thread to another runner (`convex/moves.ts`, Moving a thread to another runner) |
