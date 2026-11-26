@@ -96,6 +96,13 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
   the other runners up or down. A leaked key with reads reads every Mac's
   transcripts, which ADR 0002 accepts; what it reads reaches that Mac's
   agents as information, never as instructions.
+- **What a job may do from a runner key.** A runner key, with reads or
+  without, only files requests, and a request for a job is no different
+  (`relay:fileRequest` with `job` and `params`, checked against the job
+  the owner defined). It never starts anything: the main Mac's job starter
+  does, by the job's runner id and with the job's pinned permission mode,
+  behind the `multiMacJobs` experiment (docs/protocol/runners.md, "Jobs",
+  "The job starter" and "Replies back").
 - **Making one.** On the main Mac, `tb runner add <name> --ssh <host>`
   reads that Mac's `runner.json` over ssh, but decides the id itself: it
   refuses the main Mac's own id, an id that isn't one, one that mirrors to
