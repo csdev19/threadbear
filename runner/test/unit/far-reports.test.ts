@@ -40,6 +40,9 @@ function fake(dir = tmpDir('far-reports')) {
     jobsOn: true,
     failThere: false,
     failWith: undefined as Error | undefined,
+    // Other threads' rows by id (an asking thread's), when a test gives one.
+    rowFor: {} as Record<string, { status: string; runnerId?: string } | null>,
+    rowThrows: false,
     sends: 0,
     warns: [] as string[],
     onRows: undefined as (() => void) | undefined,
@@ -48,7 +51,9 @@ function fake(dir = tmpDir('far-reports')) {
   const make = () =>
     new FarReports({
       file: path.join(dir, 'far-reports.json'),
-      row: async () => {
+      row: async (id) => {
+        if (id in s.rowFor) return s.rowFor[id]!;
+        if (s.rowThrows && id === JOB.starter) throw new Error('sync is off');
         s.rowReads++;
         return s.row;
       },
@@ -581,4 +586,35 @@ test('a job turn that is no longer the newest is held by the same settle rule', 
   assert.equal(g.there.length, 0);
   await g.tick(gr, 3 * MIN);
   assert.equal(g.there.length, 1);
+});
+
+test("a job reply goes to the asking thread's runner as the backend has it now, the recorded one only as the first guess", async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  // The asking thread moved from the laptop to the desktop meanwhile.
+  f.s.rowFor[JOB.starter] = { status: 'idle', runnerId: 'desktop' };
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.deepEqual([f.there[0]!.runnerId, f.there[0]!.threadId], ['desktop', 'ask-thread-on-laptop']);
+
+  // The backend has no row for it, or can't be read: the recorded runner is tried.
+  const g = fake();
+  const gr = g.make();
+  gr.add(JOB);
+  g.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  g.s.rowFor[JOB.starter] = null;
+  await g.tick(gr);
+  await g.tick(gr);
+  assert.equal(g.there[0]!.runnerId, 'laptop');
+  const h = fake();
+  const hr = h.make();
+  hr.add(JOB);
+  h.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  h.s.rowThrows = true;
+  await h.tick(hr);
+  await h.tick(hr);
+  assert.equal(h.there[0]!.runnerId, 'laptop');
 });

@@ -661,7 +661,12 @@ runner, and when its first turn ends it sends the reply that turn ended
 with to the asking thread, with the relay's `sendTo`: a `send` command
 queued in the backend for the asking Mac's runner id and the thread id the
 watch holds, not through the sidebar index, which after a restart of the main
-Mac has nothing until an app connects. The reply is not the job's last word:
+Mac has nothing until an app connects. Before each send the main Mac reads
+the asking thread's row in the backend (`relay:remoteThread`) and sends to
+the runner id it has there, so an asking thread that moved to another Mac
+since it asked still gets the reply; the asking Mac recorded when the job was
+started is only the first guess, used if the backend has no row or can't be
+read. The reply is not the job's last word:
 later turns are not sent. It is sent once the turn's last row is the
 assistant's words and the reply has stayed the same for a second look; a
 turn that ends on a tool call goes after staying the same for two minutes.
