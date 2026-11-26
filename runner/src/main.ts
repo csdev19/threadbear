@@ -1562,7 +1562,7 @@ async function main(): Promise<void> {
       const r = (await relay.create(runnerId, { ...p })) as { thread: { id: string } };
       return { id: r.thread.id };
     },
-    startedJob: (p) => farReports.add({ ...p, by: 'ask' }),
+    startedJob: (p) => farReports.add(p),
     respondThere: async (threadId, approvalId, decision, message) => {
       await relay.call(threadId, 'approvals.respond', { threadId, approvalId, decision, ...(message ? { message } : {}) });
     },

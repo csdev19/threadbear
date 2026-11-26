@@ -1610,7 +1610,6 @@ export class Relay {
     throw new RpcError(ErrorCode.other, `${what} isn't possible through Convex yet. Do it on ${name}.`);
   }
 
-  /** A thread method about another runner's thread (rpc.ts THREAD_METHODS). */
   /**
    * A send to a thread on a runner the caller already knows by id, without the
    * sidebar index (which after a restart has nothing until an app connects).
@@ -1622,6 +1621,7 @@ export class Relay {
     await this.command(runnerId, threadId, 'send', { text });
   }
 
+  /** A thread method about another runner's thread (rpc.ts THREAD_METHODS). */
   async call(threadId: string, method: string, p: Record<string, unknown>): Promise<unknown> {
     const w = this.watch(threadId);
     switch (method) {
