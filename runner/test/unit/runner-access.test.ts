@@ -114,6 +114,39 @@ test("Mac mini's key can't pair a phone, manage keys or read the other runners' 
   assert.equal(mayCall(mini, 'somethingNew'), false);
 });
 
+// The read tier (ADR 0002, AC10): a runner key the owner gave `reads` may call
+// exactly these, and nothing else the owner key alone may.
+const READS = ['otherRunnersList', 'otherRunnersThreads', 'threadIndexSince', 'remoteTail', 'remoteMessages', 'remoteThread', 'picturesAtSeqs'];
+const reader = callerFrom('tbr_laptop', OWNER_KEY, { runnerId: LAPTOP, reads: true }) as Caller;
+
+test('a runner key with reads may call exactly the allowlisted reads, and one without may not', () => {
+  assert.deepEqual(reader, { owner: false, runnerId: LAPTOP, reads: true });
+  assert.deepEqual(Object.keys(ACCESS).filter((f) => ACCESS[f] === 'reads').sort(), [...READS].sort());
+  for (const fn of READS) {
+    assert.equal(mayCall(reader, fn), true, fn);
+    assert.equal(mayCall(mini, fn), false, `${fn} without reads`);
+    assert.equal(mayCall(owner, fn), true, fn);
+  }
+  // Everything the owner alone may call besides those stays refused to a key with reads.
+  for (const fn of Object.keys(ACCESS).filter((f) => ACCESS[f] === 'owner')) assert.equal(mayCall(reader, fn), false, fn);
+  for (const fn of ['remoteBody', 'remoteAccounts', 'remotePools', 'runnerOrder', 'queueCommand', 'pictureUploadUrl', 'decideRequest', 'setRunnerReads', 'addRunnerKey', 'startThread']) assert.equal(mayCall(reader, fn), false, fn);
+  assert.equal(mayCall(reader, 'somethingNew'), false);
+  // Its own functions are unchanged.
+  assert.equal(mayCall(reader, 'heartbeat'), true);
+});
+
+test('reads is only ever a live runner key\'s: a falsy flag, a revoked row or a box key has none', () => {
+  assert.deepEqual(callerFrom('tbr_laptop', OWNER_KEY, { runnerId: LAPTOP, reads: false }), { owner: false, runnerId: LAPTOP });
+  assert.equal(callerFrom('tbr_laptop', OWNER_KEY, { runnerId: LAPTOP, reads: true, revokedAt: 1 }), null);
+  // The owner key is the owner whatever a row says.
+  assert.deepEqual(callerFrom(OWNER_KEY, OWNER_KEY, { runnerId: LAPTOP, reads: true }), { owner: true });
+  // A box key is never looked up among runner keys (lib.ts runnerAuth), so it never has reads.
+  const b = callerFrom('tbb_' + 'a'.repeat(64), OWNER_KEY, null, { _id: 'boxes:1', runnerId: 'box0runner01', threadId: 'T1', boxKeyHash: 'h', boxState: { kind: 'awake' } }) as Caller;
+  assert.equal(b.owner, false);
+  assert.equal(b.owner === false && 'reads' in b, false);
+  for (const fn of READS) assert.equal(mayCall(b, fn), false, fn);
+});
+
 test('pocket cards: a runner key has only the ones its runner filed', () => {
   assert.equal(ownsCard(mini, { runnerId: MINI }), true);
   assert.equal(ownsCard(mini, { runnerId: LAPTOP }), false);
@@ -168,7 +201,7 @@ function protocolDoc(): string {
 
 test("the protocol's table lists every function as ACCESS sorts it", () => {
   const doc = protocolDoc();
-  const label = { owner: 'owner only', own: 'its own', shared: 'any runner' } as const;
+  const label = { owner: 'owner only', own: 'its own', shared: 'any runner', reads: 'owner, or a key with reads' } as const;
   for (const [fn, access] of Object.entries(ACCESS)) {
     assert.ok(new RegExp(`\\| \`${fn}\` \\| ${label[access]} \\|`).test(doc), `${fn} in the table as ${label[access]}`);
   }

@@ -1429,7 +1429,13 @@ login behind. Revoke and remove them, then rotate the main key unless that
 Mac has only just joined, never had the main key and has run no threads yet.
 That key only reaches its own Mac's threads, schedules and Pocket cards: it
 can't pair a phone or put a schedule on another Mac, and that Mac's app
-doesn't list the other Macs' threads. Only the first Mac's key can. A new
+doesn't list the other Macs' threads, unless you gave that key the read tier
+(`tb runner add ... --read-others`, or `tb runner reads <runnerId> on`
+on your first Mac; `tb runner revoke` or a new key without the flag takes
+it away): then that Mac lists and opens every Mac's threads and shows Runs on,
+but can't start or change anything on another Mac, and a tool's output stays
+on the Mac that ran it. A leaked key with the tier reads all your Macs'
+transcripts, so give it only to a Mac you trust as much. A new
 thread from your phone goes to your first Mac, and waits for it while it's
 asleep, unless you pick another Mac for it. Notifications from another
 Mac's threads start with that Mac's name. After moving a Mac onto its own

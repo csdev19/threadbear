@@ -18,8 +18,9 @@
 // keeps its hash, and a new box for the thread replaces it (boxes.ts
 // exchange), so the last box's key is refused from that moment.
 export type BoxScope = { id: string; threadId: string; keyHash: string };
-export type Caller = { owner: true; box?: undefined } | { owner: false; runnerId: string; keyId?: string; box?: undefined } | { owner: false; runnerId: string; box: BoxScope; keyId?: undefined };
-export type RunnerKeyRow = { _id?: string; runnerId: string; revokedAt?: number };
+// reads: the owner gave this runner key the read tier (ADR 0002): it may call the ACCESS 'reads' functions.
+export type Caller = { owner: true; box?: undefined } | { owner: false; runnerId: string; keyId?: string; reads?: true; box?: undefined } | { owner: false; runnerId: string; box: BoxScope; keyId?: undefined; reads?: undefined };
+export type RunnerKeyRow = { _id?: string; runnerId: string; revokedAt?: number; reads?: boolean };
 // The boxes row whose boxKeyHash matched. Its state says whether the key is
 // still good: a box being destroyed, gone or failed has none (the machine
 // clears the hash too, boxMachine.ts).
@@ -50,7 +51,7 @@ export function isOwnerKey(key: string, ownerKeys: (string | undefined)[]): bool
 export function callerFrom(key: string, ownerKeys: string | undefined | (string | undefined)[], row: RunnerKeyRow | null | undefined, box?: BoxKeyRow | null): Caller | null {
   if (!key) return null;
   if (isOwnerKey(key, Array.isArray(ownerKeys) ? ownerKeys : [ownerKeys])) return { owner: true };
-  if (row && !row.revokedAt) return { owner: false, runnerId: row.runnerId, ...(row._id ? { keyId: row._id } : {}) };
+  if (row && !row.revokedAt) return { owner: false, runnerId: row.runnerId, ...(row._id ? { keyId: row._id } : {}), ...(row.reads === true ? { reads: true as const } : {}) };
   if (box && box.boxKeyHash && key.startsWith(BOX_KEY_PREFIX) && !BOX_KEY_DEAD.includes(box.boxState.kind)) {
     return { owner: false, runnerId: box.runnerId, box: { id: box._id, threadId: box.threadId, keyHash: box.boxKeyHash } };
   }
@@ -178,7 +179,10 @@ export function ownsCard(c: Caller, card: { runnerId?: string }): boolean {
 //   own:    any key, for its own runnerId and its own threads, schedules,
 //           commands and cards (the owner for anyone's).
 //   shared: any key; nothing in it is another runner's to protect.
-export type Access = 'owner' | 'own' | 'shared';
+//   reads:  the owner key, or a runner key the owner gave `reads` (ADR 0002,
+//           docs/protocol/keys.md "The read tier"): the reads of other runners'
+//           threads, and nothing that writes or shows tool output.
+export type Access = 'owner' | 'own' | 'shared' | 'reads';
 export const ACCESS: Record<string, Access> = {
   upsertThreads: 'own',
   setPresence: 'own',
@@ -257,26 +261,28 @@ export const ACCESS: Record<string, Access> = {
   takeCommand: 'own',
   finishCommand: 'own',
   setThreadIndex: 'own',
-  otherRunnersList: 'owner',
+  otherRunnersList: 'reads',
   // Mike's runner order (API 58): a runner key that could move it could put
   // itself first for his new threads from the phone.
   runnerOrder: 'owner',
   setRunnerOrder: 'owner',
-  threadIndexSince: 'owner',
-  otherRunnersThreads: 'owner',
+  threadIndexSince: 'reads',
+  otherRunnersThreads: 'reads',
   addRunnerKey: 'owner',
   listRunnerKeys: 'owner',
   revokeRunnerKey: 'owner',
+  // Sets or clears a live runner key's `reads` (API 107).
+  setRunnerReads: 'owner',
   audit: 'owner',
   scrubStoredBatch: 'owner',
   auditRemove: 'owner',
   purgeRunner: 'owner',
   // relay.ts (API 44): other runners' threads read and steered from the main
-  // Mac. Reading another runner's messages and queueing work for it is the
-  // owner's alone.
-  remoteTail: 'owner',
-  remoteMessages: 'owner',
-  remoteThread: 'owner',
+  // Mac. Reading another runner's messages is the owner's, or a runner key's
+  // with `reads`; queueing work for it is the owner's alone.
+  remoteTail: 'reads',
+  remoteMessages: 'reads',
+  remoteThread: 'reads',
   queueCommand: 'owner',
   commandState: 'owner',
   // Pictures for another runner's thread (API 63): an upload URL, and
@@ -289,7 +295,7 @@ export const ACCESS: Record<string, Access> = {
   // the main Mac's runner reads another runner's.
   remoteBody: 'owner',
   // The pictures pasted into another runner's messages, with their URLs (API 87).
-  picturesAtSeqs: 'owner',
+  picturesAtSeqs: 'reads',
   // Asking another runner (relay.ts): a runner key files and reads back its
   // own requests; only the main Mac's runner reads any and answers them.
   fileRequest: 'own',
@@ -642,6 +648,7 @@ export const BOX_READS: ReadonlySet<string> = new Set(['threadsOf', 'sharedThrea
 export function mayCall(c: Caller, fn: string): boolean {
   if (c.owner) return true;
   if (c.box && !BOX_CALLS.has(fn)) return false;
+  if (ACCESS[fn] === 'reads') return c.reads === true && !c.box;
   return ACCESS[fn] === 'own' || ACCESS[fn] === 'shared';
 }
 
