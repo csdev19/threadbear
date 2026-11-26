@@ -580,6 +580,14 @@ validates: nothing starts a job request yet, with or without a card.
 Start it on a job request's card denies it, with the reason "Job requests
 are started by the job starter, not from a card".
 
+`relay:decideRequest` holds the same rule in the backend, so a main Mac
+still on the previous runner release can't start one either: that
+release's card path ignores `job` and would start an empty thread with no
+permission mode, which is Full access. For a row that has `job`, it
+refuses (`badArgs`) the `claimed` and `allowed` moves, and the old path
+claims before it creates any thread. Handing a request back (`pending`)
+and denying it still work. The rule goes when the job starter exists.
+
 ## Sharing
 
 A thread can be shared by link on the website (docs/website.md, "Sharing"),
