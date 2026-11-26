@@ -557,7 +557,9 @@ checks every field); the owner key and runner keys read them
   runner's 50 kept requests.
 - `brief`: the text the thread starts with, with `{param}` placeholders,
   at most 4000 bytes, each naming one of the job's `params` (a brace
-  holding anything else, such as JSON, is plain text). The main Mac fills
+  holding anything else, such as JSON, is plain text; a lower-case word in
+  braces is a placeholder even after `$`, so a shell `${x}` in a brief must
+  name a parameter too). The main Mac fills
   it in; the asking Mac gives values, never text that becomes
   instructions.
 
@@ -574,7 +576,9 @@ and `title`, `cwd`, `model`, `effort`, `permissionMode` and `why` (the
 job decides them). Over the job's `perHour` it refuses with `tooMany`.
 The row keeps `job` and `params`, and `runnerRequest` returns them. A
 request with no `job` is what it was. This layer only files and
-validates: nothing yet starts a job request without a card.
+validates: nothing starts a job request yet, with or without a card.
+Start it on a job request's card denies it, with the reason "Job requests
+are started by the job starter, not from a card".
 
 ## Sharing
 
