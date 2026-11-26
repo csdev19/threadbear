@@ -336,6 +336,16 @@ export class FarReports {
       // stays (it is on disk) and the next tick tries again; once it went, the
       // watch is forgotten.
       if (job) {
+        // The asking thread may have moved to another runner since it was filed:
+        // the backend's row for it says where it is now, the one recorded is the
+        // first guess (kept if the backend has no row or can't be read).
+        let to = job.to;
+        try {
+          const asker = await this.deps.row(rec.starter);
+          if (asker?.runnerId) to = rec.askerRunnerId = asker.runnerId;
+        } catch {
+          // The recorded runner is tried.
+        }
         // Passed on meanwhile by the other runner of a handover.
         const there = this.read().get(rec.threadId);
         if ((there && mark(there) !== before) || !this.deps.active()) return true;
@@ -345,7 +355,7 @@ export class FarReports {
           return false;
         }
         try {
-          await job.send(job.to, rec.starter, jobReportText({ job: job.name, threadId: rec.threadId, runnerName: rec.runnerName, reply, mayRepeat: rec.maybeSent }));
+          await job.send(to, rec.starter, jobReportText({ job: job.name, threadId: rec.threadId, runnerName: rec.runnerName, reply, mayRepeat: rec.maybeSent }));
         } catch (e) {
           const failedAt = rec.failedAt ?? now;
           if (now - failedAt > JOB_GIVE_UP_MS) {
