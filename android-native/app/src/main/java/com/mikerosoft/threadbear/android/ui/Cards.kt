@@ -220,6 +220,7 @@ fun StartRequestCard(vm: ThreadViewModel, card: PendingApproval.Approval, tapped
     val api by vm.apiVersions.collectAsStateWithLifecycle()
     var attempt by remember(card.id) { mutableStateOf(0) }
     var retrying by remember(card.id) { mutableStateOf(false) }
+    // null while the first read is on its way (a key change starts over).
     val read by produceState<StartRequestRead?>(null, card.id, api, attempt) {
         val got = vm.startRequest(card.id)
         retrying = false
@@ -237,10 +238,22 @@ fun StartRequestCard(vm: ThreadViewModel, card: PendingApproval.Approval, tapped
         }
         return
     }
-    val r = (read as? StartRequestRead.Startable)?.request
-    if (r == null) {
-        ApprovalCard(card, tapped) { vm.respond(card.id, it) }
-        return
+    // null is the first read still on its way: a neutral frame, so the plain
+    // card doesn't flash before the start card. NotStartable is the backend's no.
+    val r = when (val got = read) {
+        null -> {
+            CardFrame(LocalSignals.current.needsYou) {
+                Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 1.5.dp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            return
+        }
+        is StartRequestRead.Startable -> got.request
+        StartRequestRead.NotStartable, StartRequestRead.Unreadable -> {
+            ApprovalCard(card, tapped) { vm.respond(card.id, it) }
+            return
+        }
     }
     val colors = MaterialTheme.colorScheme
     val signals = LocalSignals.current
