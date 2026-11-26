@@ -363,7 +363,9 @@ phone names must be one that has heartbeated (or `"any"`), else
   Mac sends it for another runner's thread).
 - `phone:startRequest({ token, threadId, approvalId })` (API 106) → the
   free-text request a runner key filed, as filed, or `null` (not pending, a
-  job's, or not that thread's), and `phone:startRequestNow({ token,
+  job's, not that thread's, or the main Mac's last heartbeat didn't say
+  `phoneStarts`: Since API 106 `sync:heartbeat` takes it, set while the
+  `multiMacJobs` experiment is on there), and `phone:startRequestNow({ token,
   threadId, approvalId, docId })` → commandId: Start it, queued as a
   `startRequest` command for the main Mac, which starts it only with the
   `multiMacJobs` experiment on, after reading the row again

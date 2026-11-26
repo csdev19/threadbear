@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
-import { ConvexSync, forBackend, RELAY_CARDS_API_VERSION, ASKED_API_VERSION, LINKS_API_VERSION, PROJECTS_DIFF_API_VERSION, STARS_API_VERSION, NETWORK_WAIT_API_VERSION, OPTION_NOTES_API_VERSION, NEXT_PICK_API_VERSION, BACKEND_API_VERSION, MAC_RUNNER_STATS_API_VERSION, TURNS_API_VERSION, ICONS_API_VERSION, RUNNER_ICON_API_VERSION, SCHEDULES_API_VERSION, SHARE_API_VERSION, WOKE_API_VERSION, STARTED_BY_API_VERSION, SECTIONS_API_VERSION, MODELS_API_VERSION, REPLY_IMAGES_API_VERSION, REPLY_IMAGES_LOOKBACK_MS, REPLY_IMAGES_SCANS_PER_FLUSH, toAccountDoc, PRESENCE_MS, SYNC_COALESCE_MS, HEARTBEAT_MS, SHARED_USAGE_POLL_MS, SYNC_BATCH, ensureRunnerId, toThreadDoc, convexPoster, convexUploader, pictureName, type ThreadDoc } from '../../src/sync.ts';
+import { ConvexSync, forBackend, RELAY_CARDS_API_VERSION, ASKED_API_VERSION, LINKS_API_VERSION, PROJECTS_DIFF_API_VERSION, STARS_API_VERSION, NETWORK_WAIT_API_VERSION, OPTION_NOTES_API_VERSION, NEXT_PICK_API_VERSION, BACKEND_API_VERSION, MAC_RUNNER_STATS_API_VERSION, TURNS_API_VERSION, ICONS_API_VERSION, RUNNER_ICON_API_VERSION, PHONE_STARTS_API_VERSION, SCHEDULES_API_VERSION, SHARE_API_VERSION, WOKE_API_VERSION, STARTED_BY_API_VERSION, SECTIONS_API_VERSION, MODELS_API_VERSION, REPLY_IMAGES_API_VERSION, REPLY_IMAGES_LOOKBACK_MS, REPLY_IMAGES_SCANS_PER_FLUSH, toAccountDoc, PRESENCE_MS, SYNC_COALESCE_MS, HEARTBEAT_MS, SHARED_USAGE_POLL_MS, SYNC_BATCH, ensureRunnerId, toThreadDoc, convexPoster, convexUploader, pictureName, type ThreadDoc } from '../../src/sync.ts';
 import type { Project, ThreadSummary } from '../../src/protocol.ts';
 import { Scheduler, type ScheduleBackend } from '../../src/schedules.ts';
 import { nullLogger, type Logger } from '../../src/log.ts';
@@ -2419,6 +2419,28 @@ test('the heartbeat carries the runner icon once the backend takes it', async ()
   f.h.clock.advance(HEARTBEAT_MS);
   await tick();
   assert.equal(beats().at(-1), 'macmini');
+  await f.sync.stop();
+});
+
+test('the heartbeat says the phone can start requests here only while it can, and only to a backend that takes it', async () => {
+  let api = PHONE_STARTS_API_VERSION - 1;
+  let on = true;
+  const f = setup({ answer: (fn) => (fn === 'sync:heartbeat' ? { apiVersion: api } : null), extra: { phoneStarts: () => on } });
+  f.sync.start();
+  await tick();
+  const beats = () => f.calls.filter((c) => c.fn === 'sync:heartbeat').map((c) => (c.args.runner as { phoneStarts?: boolean }).phoneStarts);
+  assert.deepEqual(beats(), [undefined], 'not to an older backend, whose validator would refuse it');
+  api = PHONE_STARTS_API_VERSION;
+  f.h.clock.advance(HEARTBEAT_MS);
+  await tick();
+  f.h.clock.advance(HEARTBEAT_MS);
+  await tick();
+  assert.equal(beats().at(-1), true);
+  // Experiment off: the field is left out, which takes it away on the backend.
+  on = false;
+  f.h.clock.advance(HEARTBEAT_MS);
+  await tick();
+  assert.equal(beats().at(-1), undefined);
   await f.sync.stop();
 });
 

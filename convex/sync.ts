@@ -1486,6 +1486,8 @@ export const heartbeat = mutation({
       updateFailed: v.optional(updateFailedValidator),
       // A box's: the provider's id for the machine it runs on (boxes.ts exchange's `machineId`).
       machineId: v.optional(v.string()),
+      // The main Mac's, while it takes the phone's Start it (API 106).
+      phoneStarts: v.optional(v.boolean()),
     }),
     // A box stopped by its save (runner/src/box-save.ts SaveHold): this
     // heartbeat makes no work, so it doesn't mark the box as holding any.

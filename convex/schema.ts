@@ -300,6 +300,10 @@ export const appSchema = defineSchema({
     // Its last heartbeat came with the owner key (docs/protocol/keys.md, "Runner
     // keys"), so it's the main Mac: a phone's new thread goes there first.
     byOwner: v.optional(v.boolean()),
+    // This runner starts a request from the phone (API 106, multiMacJobs on):
+    // from each heartbeat, so it goes when the experiment does. Read only on
+    // the main Mac's row, by phone:startRequest.
+    phoneStarts: v.optional(v.boolean()),
     // A thread's box on a virtual runner (docs/virtual-runners.md), not a
     // machine: hidden from the Runs-on menu and Settings' machine list. Set
     // when the box is made; a heartbeat keeps it.

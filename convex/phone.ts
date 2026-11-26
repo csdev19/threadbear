@@ -989,6 +989,14 @@ export const startRequest = query({
     await checkPhoneToken(ctx, token);
     const r = await startableRequest(ctx, threadId, approvalId);
     if (!r || r.state !== 'pending' || r.job !== undefined) return null;
+    // Nothing to offer unless the main Mac says it takes a start from the
+    // phone (its heartbeat's `phoneStarts`, set while multiMacJobs is on
+    // there): otherwise Start it could only fail. One that hasn't said (an
+    // older runner, the experiment off) gets the plain card to answer on the Mac.
+    const runners: Doc<'runners'>[] = [];
+    for await (const x of ctx.db.query('runners')) runners.push(x);
+    const main = await mainOwnerRunner(ctx, runners, false);
+    if (!runners.find((x) => x.runnerId === main)?.phoneStarts) return null;
     return {
       docId: String(r._id),
       requestId: r.requestId,
