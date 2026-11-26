@@ -77,13 +77,17 @@ schedule on it, and mint phone tokens. Now there are two kinds of key, and
   messages and row, its open approval and secret card key included) and
   `picturesAtSeqs` (pictures pasted into messages). A key with reads gets
   the same answers the owner key does, the other runners including the main
-  Mac's. Everything else stays owner only: tool output (`remoteBody`),
-  accounts (`remoteAccounts`), pools (`remotePools`), Mike's runner order
-  (`runnerOrder`) and every write (`queueCommand`, `pictureUploadUrl`,
+  Mac's. Everything else about other runners stays owner only: tool output
+  (`remoteBody`), accounts (`remoteAccounts`), pools (`remotePools`), Mike's
+  runner order (`runnerOrder`) and every write (`queueCommand`, `pictureUploadUrl`,
   `decideRequest`, ...), so a key with reads can read another Mac's
   threads but not start, steer or change anything there (a laptop's
   agents file a request or a job for the main Mac to carry out, "Asking
-  another runner"). It never applies to a box key. `tb runner revoke`
+  another runner"). One thing is not new here and this layer does not
+  change it: `sync:pools` answers every runner key, with reads or without,
+  with the shared pools' names, folders and members' provider and email
+  (a member named by runner id alone is left out for another runner). The
+  read tier never applies to a box key. `tb runner revoke`
   clears it, and so does making a new key for the same runner (`tb runner
   add ... --replace`): the new key has reads only if it's asked for again.
   The runner learns it from its heartbeat, which answers `reads: true` to a
