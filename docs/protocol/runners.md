@@ -684,7 +684,10 @@ doesn't show where it ended (the job thread moved on while the watch was
 paused and its first turn is long), the asking thread gets one short note in
 the same framed header instead, saying the job thread moved on before its
 first reply could be read here and naming the Mac and the thread id to read it
-with `read_thread`, and the watch is forgotten.
+with `read_thread`, and the watch is forgotten. The note needs evidence
+of a later turn (a turn other than the first on the newest page, or after it
+on the page from the beginning): a newest page that is empty because rows
+haven't synced yet is not evidence, and the watch keeps waiting.
 It is sent once: after it goes the watch is forgotten, so a row that
 reaches the backend later is not sent. A day's cap on sends from a thread
 (40) applies as for any far report, and for a job it counts every send that
@@ -694,7 +697,8 @@ does not count. The count is kept on the watch, so a reply whose
 acknowledgement keeps getting lost stops at 40 and the watch is forgotten.
 As for any far report, a reply is not sent if the other runner of a handover
 passed it on while this one was reading, including when that runner sent it
-and forgot the watch.
+and forgot the watch. A job watch gone from the file is never written back by
+a look that was under way: every save of it is checked against the file.
 
 - The reply arrives as another thread's message (it starts with the
   `[Sent by the agent in the thread ...]` line), so the asking Mac holds it

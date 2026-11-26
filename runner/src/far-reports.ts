@@ -255,6 +255,8 @@ export class FarReports {
           // meanwhile stands: this look's view of it is old.
           const now = this.read().get(id);
           if (now && mark(now) !== before && mark(now) !== mark(rec)) continue;
+          // A job's watch gone from the file was sent and forgotten by the other runner: never written back.
+          if (!now && rec.job !== undefined) continue;
           if (keep) this.write(rec);
           else this.write(undefined, rec.threadId);
         } catch (e) {
@@ -313,6 +315,9 @@ export class FarReports {
           rows = start;
           turns = startTurns;
         } else if (!turns.includes(rec.firstTurn)) {
+          // Said only on evidence of a later turn: an empty newest page (rows not synced yet) is not one.
+          const first = rec.firstTurn;
+          if (!turns.some((t) => t !== first) && !startTurns.some((t) => t !== first)) return true;
           movedOn = true;
           rows = newest;
         }

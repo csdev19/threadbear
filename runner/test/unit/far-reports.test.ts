@@ -732,3 +732,45 @@ test("a job reply for an asking thread the backend now puts on this Mac is deliv
   assert.deepEqual(f.s.ceilings, ['ask']);
   assert.deepEqual(fr.watching(), []);
 });
+
+test('a job watch the other runner sent and deleted is not written back by a look that changed its reply', async () => {
+  const dir = tmpDir('far-reports-job-noresurrect');
+  const f = fake(dir);
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  await f.tick(fr);
+  // The reply changes while the other runner sends the old one and forgets the watch.
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done, with more.']));
+  f.s.onRows = () => {
+    f.s.onRows = undefined;
+    fs.writeFileSync(path.join(dir, 'far-reports.json'), '[]');
+  };
+  await f.tick(fr);
+  assert.deepEqual(fr.watching(), [], 'not brought back');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'far-reports.json'), 'utf8')), []);
+  for (let i = 0; i < 3; i++) await f.tick(fr);
+  assert.equal(f.there.length, 0);
+  assert.equal(f.s.sends, 0);
+});
+
+test('a job is not called moved on when the newest page was empty and the beginning shows only its first turn', async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('running', '2026-11-26T10:00:00Z', turn(1, [], { tools: true }));
+  await f.tick(fr);
+  // Rows not synced yet on the newest page; the beginning has only turn 1, still running.
+  f.s.startRows = turn(1, [], { tools: true });
+  f.set('running', '2026-11-26T10:00:30Z', []);
+  for (let i = 0; i < 3; i++) await f.tick(fr);
+  assert.equal(f.there.length, 0, 'no note while turn 1 runs');
+  assert.deepEqual(fr.watching(), [JOB.threadId]);
+  // Its reply arrives and goes as usual.
+  f.s.startRows = undefined;
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 1);
+  assert.match(f.there[0]!.text, /\n\nDone\.$/);
+});
