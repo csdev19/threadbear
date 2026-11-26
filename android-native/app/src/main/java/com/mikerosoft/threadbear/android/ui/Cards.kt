@@ -220,8 +220,10 @@ fun StartRequestCard(vm: ThreadViewModel, card: PendingApproval.Approval, tapped
     val api by vm.apiVersions.collectAsStateWithLifecycle()
     var attempt by remember(card.id) { mutableStateOf(0) }
     var retrying by remember(card.id) { mutableStateOf(false) }
-    // null while the first read is on its way (a key change starts over).
+    // null while the read is on its way. The read is one-shot, not live: a key
+    // change (card, API version, Try again) clears the old answer and reads again.
     val read by produceState<StartRequestRead?>(null, card.id, api, attempt) {
+        value = null
         val got = vm.startRequest(card.id)
         retrying = false
         value = got
