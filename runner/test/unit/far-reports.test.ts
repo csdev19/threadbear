@@ -46,6 +46,7 @@ function fake(dir = tmpDir('far-reports')) {
     rowFor: {} as Record<string, { status: string; runnerId?: string } | null>,
     rowThrows: false,
     sends: 0,
+    ceilings: [] as string[],
     warns: [] as string[],
     onRows: undefined as (() => void) | undefined,
   };
@@ -66,8 +67,9 @@ function fake(dir = tmpDir('far-reports')) {
       self: () => 'm5',
       runnerName: (id) => (id === 'cloud' ? 'Cloud box' : undefined),
       has: (id) => s.here.has(id),
-      deliver: (to, text) => {
+      deliver: (to, text, ceiling) => {
         if (s.failDeliver) throw new Error('busy');
+        s.ceilings.push(ceiling);
         sent.push({ to, text });
       },
       jobReports: () => s.jobsOn,
@@ -473,6 +475,7 @@ test('a job thread on the main Mac itself is not forgotten as moved here', async
   const fr = f.make();
   fr.add({ ...JOB, runnerId: 'm5' });
   f.s.row = { ...f.s.row!, runnerId: 'm5' } as typeof f.s.row;
+  f.s.rowFor[JOB.starter] = { status: 'idle', runnerId: 'laptop' };
   f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done here.']));
   await f.tick(fr);
   await f.tick(fr);
@@ -711,4 +714,21 @@ test("a job whose first turn can't be read to its end gets the asking thread a s
   assert.deepEqual(fr.watching(), []);
   for (let i = 0; i < 3; i++) await f.tick(fr);
   assert.equal(f.there.length, 1);
+});
+
+test("a job reply for an asking thread the backend now puts on this Mac is delivered locally, at the watch's ceiling, not through the relay", async () => {
+  const f = fake();
+  const fr = f.make();
+  fr.add(JOB);
+  f.set('idle', '2026-11-26T10:01:00Z', turn(1, ['Done.']));
+  f.s.rowFor[JOB.starter] = { status: 'idle', runnerId: 'm5' };
+  await f.tick(fr);
+  await f.tick(fr);
+  assert.equal(f.there.length, 0);
+  assert.equal(f.s.sends, 0);
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0]!.to, JOB.starter);
+  assert.match(f.sent[0]!.text, /\n\nDone\.$/);
+  assert.deepEqual(f.s.ceilings, ['ask']);
+  assert.deepEqual(fr.watching(), []);
 });
