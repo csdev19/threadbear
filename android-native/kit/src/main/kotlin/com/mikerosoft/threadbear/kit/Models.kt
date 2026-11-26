@@ -575,6 +575,8 @@ object BackendApi {
      * phone:webPushKey for the VAPID key): the fdroid build's UnifiedPush.
      */
     const val WEB_PUSH = 93
+    /** From 106 a start request another Mac filed can be started from the phone (phone:startRequest). */
+    const val START_REQUESTS = 106
 }
 
 enum class CommandState { PENDING, TAKEN, DONE, FAILED }
@@ -585,6 +587,8 @@ data class CommandStatus(
     val threadId: String? = null,
     /** A slashCommands command's answer (API 62): phone:command's `result`. Anything that isn't a list of commands reads as none. */
     val commands: List<SlashCommand>? = null,
+    /** A startRequestNow command's answer (API 106): the thread it started. */
+    val started: StartedThread? = null,
 ) {
     companion object {
         fun read(o: JsonObject) = CommandStatus(
@@ -600,6 +604,7 @@ data class CommandStatus(
             commands = o.arr("result")?.let { list ->
                 runCatching { list.map { SlashCommand.read(it as JsonObject) } }.getOrNull()
             },
+            started = o.obj("result")?.let(StartedThread::read),
         )
     }
 }

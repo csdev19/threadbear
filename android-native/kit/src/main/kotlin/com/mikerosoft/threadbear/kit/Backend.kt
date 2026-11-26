@@ -164,6 +164,18 @@ class PhoneBackend(private val transport: ConvexTransport, private val token: St
         args("threadId" to JsonPrimitive(threadId), "approvalId" to JsonPrimitive(approvalId), "decision" to JsonPrimitive(decision.wire)),
     )
 
+    /** The start request a card stands for (API 106), or null when it can't be started from the phone. */
+    suspend fun startRequest(threadId: String, approvalId: String): StartRequest? {
+        val answer = parseJson(transport.query("phone:startRequest", args("threadId" to JsonPrimitive(threadId), "approvalId" to JsonPrimitive(approvalId))))
+        return (answer as? JsonObject)?.let(StartRequest::read)
+    }
+
+    /** Starts the thread a request asks for; the command's result names it. */
+    suspend fun startRequestNow(threadId: String, approvalId: String, docId: String): String = command(
+        "phone:startRequestNow",
+        args("threadId" to JsonPrimitive(threadId), "approvalId" to JsonPrimitive(approvalId), "docId" to JsonPrimitive(docId)),
+    )
+
     suspend fun answer(threadId: String, approvalId: String, answers: Map<String, String>, summary: String): String = command(
         "phone:answer",
         args(
